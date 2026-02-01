@@ -405,79 +405,108 @@
             panel.classList.add('minimized');
         }
 
-        panel.innerHTML = `
-            <h3>
-                <span>🔍 Фільтр БЖВК</span>
-                <button id="silpo-theme-btn" type="button">${isLight ? '🌙' : '☀️'}</button>
-                <button id="silpo-toggle-btn" type="button">${isMinimized ? '▼' : '▲'}</button>
-            </h3>
-            <div class="filter-content">
-                <label>Білки (г):</label>
-                <div class="filter-row">
-                    <select id="silpo-protein-op">
-                        <option value="<" ${proteinOp === '<' ? 'selected' : ''}>&lt;</option>
-                        <option value="<=" ${proteinOp === '<=' ? 'selected' : ''}>&lt;=</option>
-                        <option value="=" ${proteinOp === '=' ? 'selected' : ''}>=</option>
-                        <option value=">=" ${proteinOp === '>=' ? 'selected' : ''}>&gt;=</option>
-                        <option value=">" ${proteinOp === '>' ? 'selected' : ''}>&gt;</option>
-                    </select>
-                    <input type="number" id="silpo-protein-val" value="${proteinVal}" min="0" step="0.1">
-                </div>
-                
-                <label>Жири (г):</label>
-                <div class="filter-row">
-                    <select id="silpo-fat-op">
-                        <option value="<" ${fatOp === '<' ? 'selected' : ''}>&lt;</option>
-                        <option value="<=" ${fatOp === '<=' ? 'selected' : ''}>&lt;=</option>
-                        <option value="=" ${fatOp === '=' ? 'selected' : ''}>=</option>
-                        <option value=">=" ${fatOp === '>=' ? 'selected' : ''}>&gt;=</option>
-                        <option value=">" ${fatOp === '>' ? 'selected' : ''}>&gt;</option>
-                    </select>
-                    <input type="number" id="silpo-fat-val" value="${fatVal}" min="0" step="0.1">
-                </div>
-                
-                <label>Вуглеводи (г):</label>
-                <div class="filter-row">
-                    <select id="silpo-carbs-op">
-                        <option value="<" ${carbsOp === '<' ? 'selected' : ''}>&lt;</option>
-                        <option value="<=" ${carbsOp === '<=' ? 'selected' : ''}>&lt;=</option>
-                        <option value="=" ${carbsOp === '=' ? 'selected' : ''}>=</option>
-                        <option value=">=" ${carbsOp === '>=' ? 'selected' : ''}>&gt;=</option>
-                        <option value=">" ${carbsOp === '>' ? 'selected' : ''}>&gt;</option>
-                    </select>
-                    <input type="number" id="silpo-carbs-val" value="${carbsVal}" min="0" step="0.1">
-                </div>
-                
-                <label>Калорії (ккал):</label>
-                <div class="filter-row">
-                    <select id="silpo-calories-op">
-                        <option value="<" ${caloriesOp === '<' ? 'selected' : ''}>&lt;</option>
-                        <option value="<=" ${caloriesOp === '<=' ? 'selected' : ''}>&lt;=</option>
-                        <option value="=" ${caloriesOp === '=' ? 'selected' : ''}>=</option>
-                        <option value=">=" ${caloriesOp === '>=' ? 'selected' : ''}>&gt;=</option>
-                        <option value=">" ${caloriesOp === '>' ? 'selected' : ''}>&gt;</option>
-                    </select>
-                    <input type="number" id="silpo-calories-val" value="${caloriesVal}" min="0" step="1">
-                </div>
-                
-                <div class="checkbox-wrapper">
-                    <input type="checkbox" id="silpo-hide-without-nutrition" ${hideWithoutNutrition ? 'checked' : ''}>
-                    <label for="silpo-hide-without-nutrition">Ховати товари без БЖВ</label>
-                </div>
-                
-                <div class="checkbox-wrapper">
-                    <input type="checkbox" id="silpo-hide-non-matching" ${hideNonMatching ? 'checked' : ''}>
-                    <label for="silpo-hide-non-matching">Ховати товари що не підходять</label>
-                </div>
-                
-                <button id="silpo-filter-btn">Застосувати фільтр</button>
-                <button id="silpo-stop-btn" style="background: #e67e22; margin-top: 5px; display: none;">Зупинити фільтрацію</button>
-                <button id="silpo-reset-btn" style="background: #666; margin-top: 5px;">Скинути фільтр</button>
-                <button id="silpo-clear-cache-btn" style="background: #dc3545; margin-top: 5px; font-size: 12px; padding: 6px;">Очистити кеш БЖВ</button>
-                
-                <div id="silpo-filter-status"></div>
-            </div>
-        `;
+        // Helper to create an operator select element
+        function createOperatorSelect(id, currentOp) {
+            const select = document.createElement('select');
+            select.id = id;
+            ['<', '<=', '=', '>=', '>'].forEach(op => {
+                const option = document.createElement('option');
+                option.value = op;
+                option.textContent = op;
+                if (op === currentOp) option.selected = true;
+                select.appendChild(option);
+            });
+            return select;
+        }
+
+        // Helper to create a filter row (select + number input)
+        function createFilterRow(labelText, selectId, selectVal, inputId, inputVal, step) {
+            const label = document.createElement('label');
+            label.textContent = labelText;
+
+            const row = document.createElement('div');
+            row.className = 'filter-row';
+            row.appendChild(createOperatorSelect(selectId, selectVal));
+
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.id = inputId;
+            input.value = inputVal;
+            input.min = '0';
+            input.step = step;
+            row.appendChild(input);
+
+            return { label, row };
+        }
+
+        // Helper to create a checkbox wrapper
+        function createCheckbox(id, labelText, checked) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'checkbox-wrapper';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.id = id;
+            cb.checked = checked;
+            const lbl = document.createElement('label');
+            lbl.htmlFor = id;
+            lbl.textContent = labelText;
+            wrapper.appendChild(cb);
+            wrapper.appendChild(lbl);
+            return wrapper;
+        }
+
+        // Helper to create a button
+        function createButton(id, text, style) {
+            const btn = document.createElement('button');
+            btn.id = id;
+            btn.textContent = text;
+            if (style) Object.assign(btn.style, style);
+            return btn;
+        }
+
+        // Build header
+        const h3 = document.createElement('h3');
+        const titleSpan = document.createElement('span');
+        titleSpan.textContent = '🔍 Фільтр БЖВК';
+        const themeBtnEl = document.createElement('button');
+        themeBtnEl.id = 'silpo-theme-btn';
+        themeBtnEl.type = 'button';
+        themeBtnEl.textContent = isLight ? '🌙' : '☀️';
+        const toggleBtnEl = document.createElement('button');
+        toggleBtnEl.id = 'silpo-toggle-btn';
+        toggleBtnEl.type = 'button';
+        toggleBtnEl.textContent = isMinimized ? '▼' : '▲';
+        h3.appendChild(titleSpan);
+        h3.appendChild(themeBtnEl);
+        h3.appendChild(toggleBtnEl);
+
+        // Build filter content
+        const filterContent = document.createElement('div');
+        filterContent.className = 'filter-content';
+
+        const proteinRow = createFilterRow('Білки (г):', 'silpo-protein-op', proteinOp, 'silpo-protein-val', proteinVal, '0.1');
+        const fatRow = createFilterRow('Жири (г):', 'silpo-fat-op', fatOp, 'silpo-fat-val', fatVal, '0.1');
+        const carbsRow = createFilterRow('Вуглеводи (г):', 'silpo-carbs-op', carbsOp, 'silpo-carbs-val', carbsVal, '0.1');
+        const caloriesRow = createFilterRow('Калорії (ккал):', 'silpo-calories-op', caloriesOp, 'silpo-calories-val', caloriesVal, '1');
+
+        [proteinRow, fatRow, carbsRow, caloriesRow].forEach(({ label, row }) => {
+            filterContent.appendChild(label);
+            filterContent.appendChild(row);
+        });
+
+        filterContent.appendChild(createCheckbox('silpo-hide-without-nutrition', 'Ховати товари без БЖВ', hideWithoutNutrition));
+        filterContent.appendChild(createCheckbox('silpo-hide-non-matching', 'Ховати товари що не підходять', hideNonMatching));
+        filterContent.appendChild(createButton('silpo-filter-btn', 'Застосувати фільтр'));
+        filterContent.appendChild(createButton('silpo-stop-btn', 'Зупинити пошук', { background: '#e67e22', marginTop: '5px', display: 'none' }));
+        filterContent.appendChild(createButton('silpo-reset-btn', 'Очистити результати', { background: '#666', marginTop: '5px' }));
+        filterContent.appendChild(createButton('silpo-clear-cache-btn', 'Очистити кеш БЖВ', { background: '#dc3545', marginTop: '5px', fontSize: '12px', padding: '6px' }));
+
+        const statusDiv = document.createElement('div');
+        statusDiv.id = 'silpo-filter-status';
+        filterContent.appendChild(statusDiv);
+
+        panel.appendChild(h3);
+        panel.appendChild(filterContent);
 
         document.body.appendChild(panel);
 
@@ -570,7 +599,7 @@
             document.querySelectorAll('.silpo-card-green, .silpo-card-red, .silpo-card-yellow').forEach(el => {
                 el.classList.remove('silpo-card-green', 'silpo-card-red', 'silpo-card-yellow');
             });
-            statusEl.textContent = '♻️ Фільтр скинуто';
+            statusEl.textContent = '♻️ Результати очищено';
         });
 
         clearCacheBtn.addEventListener('click', () => {
