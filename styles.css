@@ -217,27 +217,33 @@ body.silpo-theme-light .silpo-badge-yellow {
     color: #856404;
 }
 
-/* === CARD OUTLINES (dark) === */
+/* === CARD STYLING (dark) === */
 .silpo-card-green {
-    outline: 3px solid #2e7d4f !important;
-    outline-offset: 2px;
+    border: 3px solid #2e7d4f !important;
+    border-radius: 12px !important;
+    background-color: #2e7d4f26 !important;
 }
 .silpo-card-red {
-    outline: 3px solid #7d2e2e !important;
-    outline-offset: 2px;
+    border: 3px solid #7d2e2e !important;
+    border-radius: 12px !important;
+    background-color: rgba(125, 46, 46, 0.15) !important;
 }
 .silpo-card-yellow {
-    outline: 3px solid #7d6a2e !important;
-    outline-offset: 2px;
+    border: 3px solid #7d6a2e !important;
+    border-radius: 12px !important;
+    background-color: rgba(125, 106, 46, 0.15) !important;
 }
 
-/* === CARD OUTLINES (light) === */
+/* === CARD STYLING (light) === */
 body.silpo-theme-light .silpo-card-green {
-    outline-color: #28a745 !important;
+    border-color: #28a745 !important;
+    background-color: rgba(40, 167, 69, 0.1) !important;
 }
 body.silpo-theme-light .silpo-card-red {
-    outline-color: #dc3545 !important;
+    border-color: #dc3545 !important;
+    background-color: rgba(220, 53, 69, 0.1) !important;
 }
 body.silpo-theme-light .silpo-card-yellow {
-    outline-color: #ffc107 !important;
+    border-color: #ffc107 !important;
+    background-color: rgba(255, 193, 7, 0.1) !important;
 }
