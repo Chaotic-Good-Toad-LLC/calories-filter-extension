@@ -15,6 +15,7 @@
         cacheExpiry: 604800000, // 7 days
         hideWithoutNutritionKey: 'calories_extention_hide_without_nutrition',
         hideNonMatchingKey: 'calories_extention_hide_non_matching',
+        onlyProteinMoreThanFatKey: 'calories_extention_only_protein_more_than_fat',
         panelMinimizedKey: 'calories_extention_panel_minimized',
         filterValuesKey: 'calories_extention_filter_values',
         themeKey: 'calories_extention_theme'
@@ -228,7 +229,7 @@
         }
     }
 
-    async function filterProducts(proteinOp, proteinVal, fatOp, fatVal, carbsOp, carbsVal, caloriesOp, caloriesVal, hideWithoutNutrition, hideNonMatching, statusEl) {
+    async function filterProducts(proteinOp, proteinVal, fatOp, fatVal, carbsOp, carbsVal, caloriesOp, caloriesVal, hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat, statusEl) {
         // Find all product cards (multiple selectors for different page layouts)
         const possibleSelectors = [
             'article[class*="product"]',
@@ -300,12 +301,20 @@
 
             const { protein, fat, carbs, calories } = nutrition;
 
+            // Store nutrition data on card for dynamic filtering
+            card.dataset.protein = protein;
+            card.dataset.fat = fat;
+            card.dataset.carbs = carbs;
+            card.dataset.calories = calories;
+
             // Check all filter conditions
             const proteinMatch = compareValue(protein, proteinOp, proteinVal);
             const fatMatch = compareValue(fat, fatOp, fatVal);
             const carbsMatch = compareValue(carbs, carbsOp, carbsVal);
             const caloriesMatch = calories > 0 ? compareValue(calories, caloriesOp, caloriesVal) : true;
-            const isMatch = proteinMatch && fatMatch && carbsMatch && caloriesMatch;
+            const proteinMoreThanFat = protein > fat;
+            const muscleMatch = onlyProteinMoreThanFat ? proteinMoreThanFat : true;
+            const isMatch = proteinMatch && fatMatch && carbsMatch && caloriesMatch && muscleMatch;
 
             // Add nutrition info badge below the product
             const infoDiv = document.createElement('div');
@@ -339,23 +348,35 @@
                 infoDiv.appendChild(calDiv);
             }
 
+            // Add muscle emoji if protein > fat
+            if (proteinMoreThanFat) {
+                const muscleDiv = document.createElement('div');
+                muscleDiv.className = 'silpo-nutrition-label';
+                muscleDiv.textContent = '💪';
+                muscleDiv.title = 'Білків більше ніж жирів';
+                infoDiv.appendChild(muscleDiv);
+            }
+
+            // Hide if muscle filter is on and protein <= fat
+            const hideByMuscle = onlyProteinMoreThanFat && !proteinMoreThanFat;
+
             if (isMatch) {
                 matched++;
                 card.classList.remove('silpo-hidden');
                 card.classList.add('silpo-card-green');
                 infoDiv.classList.add('silpo-badge-green');
-                card.appendChild(infoDiv);
             } else {
                 hidden++;
-                if (hideNonMatching) {
+                card.classList.add('silpo-card-red');
+                infoDiv.classList.add('silpo-badge-red');
+                if (hideNonMatching || hideByMuscle) {
                     card.classList.add('silpo-hidden');
                 } else {
                     card.classList.remove('silpo-hidden');
-                    card.classList.add('silpo-card-red');
-                    infoDiv.classList.add('silpo-badge-red');
-                    card.appendChild(infoDiv);
                 }
             }
+            // Always append the badge
+            card.appendChild(infoDiv);
 
             // Small delay to avoid rate limiting
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -366,11 +387,77 @@
             : `✅ Готово! Підходить: ${matched}, не підходить: ${hidden}`;
     }
 
+    // === DYNAMIC VISIBILITY ===
+    function applyVisibility() {
+        const hideWithoutNutrition = document.getElementById('silpo-hide-without-nutrition')?.checked;
+        const hideNonMatching = document.getElementById('silpo-hide-non-matching')?.checked;
+        const onlyProteinMoreThanFat = document.getElementById('silpo-only-protein-more-than-fat')?.checked;
+
+        const proteinOp = document.getElementById('silpo-protein-op')?.value || '>=';
+        const proteinVal = parseFloat(document.getElementById('silpo-protein-val')?.value) || 0;
+        const fatOp = document.getElementById('silpo-fat-op')?.value || '<=';
+        const fatVal = parseFloat(document.getElementById('silpo-fat-val')?.value) || 0;
+        const carbsOp = document.getElementById('silpo-carbs-op')?.value || '<=';
+        const carbsVal = parseFloat(document.getElementById('silpo-carbs-val')?.value) || 0;
+        const caloriesOp = document.getElementById('silpo-calories-op')?.value || '<=';
+        const caloriesVal = parseFloat(document.getElementById('silpo-calories-val')?.value) || 0;
+
+        // Find all cards with nutrition data
+        const cardsWithData = document.querySelectorAll('[data-protein]');
+        // Find cards without nutrition (yellow badge)
+        const cardsWithoutData = document.querySelectorAll('.silpo-card-yellow');
+
+        // Handle cards without nutrition data
+        cardsWithoutData.forEach(card => {
+            if (hideWithoutNutrition) {
+                card.classList.add('silpo-hidden');
+            } else {
+                card.classList.remove('silpo-hidden');
+            }
+        });
+
+        // Handle cards with nutrition data
+        cardsWithData.forEach(card => {
+            const protein = parseFloat(card.dataset.protein);
+            const fat = parseFloat(card.dataset.fat);
+            const carbs = parseFloat(card.dataset.carbs);
+            const calories = parseFloat(card.dataset.calories);
+
+            const proteinMatch = compareValue(protein, proteinOp, proteinVal);
+            const fatMatch = compareValue(fat, fatOp, fatVal);
+            const carbsMatch = compareValue(carbs, carbsOp, carbsVal);
+            const caloriesMatch = calories > 0 ? compareValue(calories, caloriesOp, caloriesVal) : true;
+            const proteinMoreThanFat = protein > fat;
+            const muscleMatch = onlyProteinMoreThanFat ? proteinMoreThanFat : true;
+            const isMatch = proteinMatch && fatMatch && carbsMatch && caloriesMatch && muscleMatch;
+
+            const hideByMuscle = onlyProteinMoreThanFat && !proteinMoreThanFat;
+
+            if (isMatch) {
+                card.classList.remove('silpo-hidden');
+            } else if (hideNonMatching || hideByMuscle) {
+                card.classList.add('silpo-hidden');
+            } else {
+                card.classList.remove('silpo-hidden');
+            }
+        });
+
+        // Save checkbox states
+        try {
+            localStorage.setItem(CONFIG.hideWithoutNutritionKey, hideWithoutNutrition);
+            localStorage.setItem(CONFIG.hideNonMatchingKey, hideNonMatching);
+            localStorage.setItem(CONFIG.onlyProteinMoreThanFatKey, onlyProteinMoreThanFat);
+        } catch (e) {
+            console.error('Failed to save checkbox states:', e);
+        }
+    }
+
     // === UI PANEL ===
     function createFilterPanel() {
         // Load saved checkbox and panel state
         const hideWithoutNutrition = localStorage.getItem(CONFIG.hideWithoutNutritionKey) === 'true';
-        const hideNonMatching = localStorage.getItem(CONFIG.hideNonMatchingKey) !== 'false'; // default ON
+        const hideNonMatching = localStorage.getItem(CONFIG.hideNonMatchingKey) === 'true';
+        const onlyProteinMoreThanFat = localStorage.getItem(CONFIG.onlyProteinMoreThanFatKey) === 'true';
         const isMinimized = localStorage.getItem(CONFIG.panelMinimizedKey) !== 'false'; // default minimized
 
         // Load saved filter values
@@ -496,6 +583,7 @@
 
         filterContent.appendChild(createCheckbox('silpo-hide-without-nutrition', 'Ховати товари без БЖВ', hideWithoutNutrition));
         filterContent.appendChild(createCheckbox('silpo-hide-non-matching', 'Ховати товари що не підходять', hideNonMatching));
+        filterContent.appendChild(createCheckbox('silpo-only-protein-more-than-fat', 'Ховати не 💪 продукти (білків > жирів)', onlyProteinMoreThanFat));
         filterContent.appendChild(createButton('silpo-filter-btn', 'Застосувати фільтр'));
         filterContent.appendChild(createButton('silpo-stop-btn', 'Зупинити пошук', { background: '#e67e22', marginTop: '5px', display: 'none' }));
         filterContent.appendChild(createButton('silpo-reset-btn', 'Очистити результати', { background: '#666', marginTop: '5px' }));
@@ -519,6 +607,12 @@
         const statusEl = document.getElementById('silpo-filter-status');
         const hideCheckbox = document.getElementById('silpo-hide-without-nutrition');
         const hideNonMatchingCheckbox = document.getElementById('silpo-hide-non-matching');
+        const onlyProteinMoreThanFatCheckbox = document.getElementById('silpo-only-protein-more-than-fat');
+
+        // Dynamic visibility on checkbox change
+        hideCheckbox.addEventListener('change', applyVisibility);
+        hideNonMatchingCheckbox.addEventListener('change', applyVisibility);
+        onlyProteinMoreThanFatCheckbox.addEventListener('change', applyVisibility);
 
         // Toggle minimize/expand handler
         toggleBtn.addEventListener('click', (e) => {
@@ -554,6 +648,7 @@
             const caloriesVal = parseFloat(document.getElementById('silpo-calories-val').value);
             const hideWithoutNutrition = hideCheckbox.checked;
             const hideNonMatching = hideNonMatchingCheckbox.checked;
+            const onlyProteinMoreThanFat = onlyProteinMoreThanFatCheckbox.checked;
 
             // Save all filter values
             const filterValues = {
@@ -570,6 +665,7 @@
                 localStorage.setItem(CONFIG.filterValuesKey, JSON.stringify(filterValues));
                 localStorage.setItem(CONFIG.hideWithoutNutritionKey, hideWithoutNutrition);
                 localStorage.setItem(CONFIG.hideNonMatchingKey, hideNonMatching);
+                localStorage.setItem(CONFIG.onlyProteinMoreThanFatKey, onlyProteinMoreThanFat);
             } catch (e) {
                 console.error('Failed to save filter values:', e);
             }
@@ -578,7 +674,7 @@
             resetBtn.disabled = true;
             stopBtn.style.display = '';
 
-            await filterProducts(proteinOp, proteinVal, fatOp, fatVal, carbsOp, carbsVal, caloriesOp, caloriesVal, hideWithoutNutrition, hideNonMatching, statusEl);
+            await filterProducts(proteinOp, proteinVal, fatOp, fatVal, carbsOp, carbsVal, caloriesOp, caloriesVal, hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat, statusEl);
 
             filterBtn.disabled = false;
             resetBtn.disabled = false;
