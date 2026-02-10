@@ -20,6 +20,45 @@
         filterValuesKey: 'calories_extention_filter_values',
         themeKey: 'calories_extention_theme'
     };
+
+    // === SITE-SPECIFIC CONFIG ===
+    const SITE_CONFIG = {
+        silpo: {
+            hostname: 'silpo.ua',
+            productCardSelectors: [
+                'article[class*="product"]',
+                'div[class*="product-card"]',
+                'a[href*="/product/"]',
+                '[data-testid*="product"]'
+            ],
+            productLinkPattern: /\/product\//,
+            getProductLink: (card) => card.href || card.querySelector('a')?.href
+        },
+        rozetka: {
+            hostname: 'rozetka.com.ua',
+            productCardSelectors: [
+                'rz-catalog-tile',
+                'li.catalog-grid__cell',
+                'div.goods-tile',
+                'article.content'
+            ],
+            productLinkPattern: /\/ua\/[^/]+\/p\d+/,
+            getProductLink: (card) => {
+                const link = card.querySelector('a.tile-title, a.goods-tile__heading, a[href*="/p"]');
+                return link?.href;
+            }
+        }
+    };
+
+    // Detect current site
+    function detectSite() {
+        const hostname = window.location.hostname;
+        if (hostname.includes('silpo.ua')) return SITE_CONFIG.silpo;
+        if (hostname.includes('rozetka.com.ua')) return SITE_CONFIG.rozetka;
+        return null;
+    }
+
+    const currentSite = detectSite();
     // === CACHE ===
     class NutritionCache {
         constructor() {
@@ -73,8 +112,187 @@
     const cache = new NutritionCache();
 
     let filterCancelled = false;
+    let filterStartUrl = null;
+
+    // Cancel filtering on navigation (SPA or regular)
+    function setupNavigationDetection() {
+        // For regular navigation
+        window.addEventListener('beforeunload', () => {
+            filterCancelled = true;
+        });
+
+        // For SPA navigation (popstate)
+        window.addEventListener('popstate', () => {
+            filterCancelled = true;
+        });
+
+        // For SPA navigation via pushState/replaceState (Angular, React, etc.)
+        const originalPushState = history.pushState;
+        const originalReplaceState = history.replaceState;
+
+        history.pushState = function (...args) {
+            filterCancelled = true;
+            return originalPushState.apply(this, args);
+        };
+
+        history.replaceState = function (...args) {
+            filterCancelled = true;
+            return originalReplaceState.apply(this, args);
+        };
+    }
+
+    setupNavigationDetection();
 
     // === NUTRITION PARSING ===
+
+    // Parse Silpo-style nutrition (structured table format)
+    function parseSilpoNutrition(doc) {
+        // Find the nutrition section — more specific search
+        const nutritionSectionCandidates = Array.from(doc.querySelectorAll('*')).filter(el => {
+            const text = el.textContent;
+            return (text.includes('Харчова цінність') || text.includes('харчова цінність')) &&
+                text.includes('Білки');
+        });
+
+        // Sort from smallest element (most specific) to largest
+        nutritionSectionCandidates.sort((a, b) => a.textContent.length - b.textContent.length);
+
+        let protein = null;
+        let fat = null;
+        let carbs = null;
+        let calories = null;
+
+        // Search within the nutrition section
+        for (const section of nutritionSectionCandidates) {
+            const sectionText = section.textContent;
+
+            // Calories: match "NUMBER/NUMBER" (kcal/kJ) or just "NUMBER/" (no kJ)
+            // Sometimes the order is swapped (kJ/kcal), so we detect and swap back
+            if (calories === null) {
+                const caloriesMatch = sectionText.match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)?/);
+                if (caloriesMatch) {
+                    let a = parseFloat(caloriesMatch[1].replace(',', '.'));
+                    let b = caloriesMatch[2] ? parseFloat(caloriesMatch[2].replace(',', '.')) : null;
+                    if (b === null) {
+                        // Only one number before the slash — treat as kcal
+                        calories = a;
+                    } else if (b > a && b < a * 10) {
+                        // Normal order: kcal/kJ (62/260)
+                        calories = a;
+                    } else if (a > b && a < b * 10) {
+                        // Reversed order: kJ/kcal (427/101) — swap
+                        calories = b;
+                    }
+                }
+            }
+
+            if (protein === null) {
+                const proteinMatch = sectionText.match(/Білки\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
+                if (proteinMatch) {
+                    protein = parseFloat(proteinMatch[1].replace(',', '.'));
+                }
+            }
+
+            if (fat === null) {
+                const fatMatch = sectionText.match(/Жири\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
+                if (fatMatch) {
+                    fat = parseFloat(fatMatch[1].replace(',', '.'));
+                }
+            }
+
+            if (carbs === null) {
+                const carbsMatch = sectionText.match(/Вуглеводи\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
+                if (carbsMatch) {
+                    carbs = parseFloat(carbsMatch[1].replace(',', '.'));
+                }
+            }
+
+            if (protein !== null && fat !== null && carbs !== null && calories !== null) break;
+        }
+
+        // If not found in main sections, try fallback approach
+        if (protein === null || fat === null || carbs === null || calories === null) {
+            const allElements = Array.from(doc.querySelectorAll('*'));
+
+            for (const el of allElements) {
+                const text = el.textContent;
+
+                // Calories via NUMBER/ or NUMBER/NUMBER format (with swap if order is reversed)
+                if (calories === null) {
+                    const match = text.match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)?/);
+                    if (match) {
+                        let a = parseFloat(match[1].replace(',', '.'));
+                        let b = match[2] ? parseFloat(match[2].replace(',', '.')) : null;
+                        if (b === null) {
+                            calories = a;
+                        } else if (b > a && b < a * 10) {
+                            calories = a;
+                        } else if (a > b && a < b * 10) {
+                            calories = b;
+                        }
+                    }
+                }
+
+                if (protein === null && /Білки.*?\(г\)/i.test(text)) {
+                    const match = text.match(/Білки.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
+                    if (match) protein = parseFloat(match[1].replace(',', '.'));
+                }
+
+                if (fat === null && /Жири.*?\(г\)/i.test(text)) {
+                    const match = text.match(/Жири.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
+                    if (match) fat = parseFloat(match[1].replace(',', '.'));
+                }
+
+                if (carbs === null && /Вуглеводи.*?\(г\)/i.test(text)) {
+                    const match = text.match(/Вуглеводи.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
+                    if (match) carbs = parseFloat(match[1].replace(',', '.'));
+                }
+
+                if (protein !== null && fat !== null && carbs !== null && calories !== null) break;
+            }
+        }
+
+        return { protein, fat, carbs, calories };
+    }
+
+    // Parse Rozetka-style nutrition (free-form text in description)
+    function parseRozetkaNutrition(doc) {
+        let protein = null;
+        let fat = null;
+        let carbs = null;
+        let calories = null;
+
+        // Get all text content from the page
+        const bodyText = doc.body?.textContent || '';
+
+        // Look for nutrition info in free-form text
+        // Various formats: "білки – 26.2 г", "білки ­-10,0 g(г)", "білки: 10g"
+        // Include all dash variants: hyphen (-), en dash (–), em dash (—), soft hyphen (­)
+        const proteinMatch = bodyText.match(/білки\s*[-–—­:]*\s*(\d+[.,]?\d*)\s*г/i);
+        if (proteinMatch) {
+            protein = parseFloat(proteinMatch[1].replace(',', '.'));
+        }
+
+        const fatMatch = bodyText.match(/жири\s*[-–—­:]*\s*(\d+[.,]?\d*)\s*г/i);
+        if (fatMatch) {
+            fat = parseFloat(fatMatch[1].replace(',', '.'));
+        }
+
+        const carbsMatch = bodyText.match(/вуглеводи\s*[-–—­:]*\s*(\d+[.,]?\d*)\s*г/i);
+        if (carbsMatch) {
+            carbs = parseFloat(carbsMatch[1].replace(',', '.'));
+        }
+
+        // Calories: look for "230 kcal", "401.2 ккал" pattern
+        // Require at least 2 digits to avoid matching stray single digits on the page
+        const caloriesMatch = bodyText.match(/(\d{2,}[.,]?\d*)\s*(?:kcal|ккал)/i);
+        if (caloriesMatch) {
+            calories = parseFloat(caloriesMatch[1].replace(',', '.'));
+        }
+
+        return { protein, fat, carbs, calories };
+    }
+
     async function fetchNutritionInfo(url) {
         // Check cache
         const cached = cache.get(url);
@@ -92,110 +310,14 @@
             const html = await response.text();
             const doc = new DOMParser().parseFromString(html, 'text/html');
 
-            // Find the nutrition section — more specific search
-            const nutritionSectionCandidates = Array.from(doc.querySelectorAll('*')).filter(el => {
-                const text = el.textContent;
-                return (text.includes('Харчова цінність') || text.includes('харчова цінність')) &&
-                    text.includes('Білки');
-            });
-
-            // Sort from smallest element (most specific) to largest
-            nutritionSectionCandidates.sort((a, b) => a.textContent.length - b.textContent.length);
-
-            let protein = null;
-            let fat = null;
-            let carbs = null;
-            let calories = null;
-
-            // Search within the nutrition section
-            for (const section of nutritionSectionCandidates) {
-                const sectionText = section.textContent;
-
-                // Calories: match "NUMBER/NUMBER" (kcal/kJ) or just "NUMBER/" (no kJ)
-                // Sometimes the order is swapped (kJ/kcal), so we detect and swap back
-                if (calories === null) {
-                    const caloriesMatch = sectionText.match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)?/);
-                    if (caloriesMatch) {
-                        let a = parseFloat(caloriesMatch[1].replace(',', '.'));
-                        let b = caloriesMatch[2] ? parseFloat(caloriesMatch[2].replace(',', '.')) : null;
-                        if (b === null) {
-                            // Only one number before the slash — treat as kcal
-                            calories = a;
-                        } else if (b > a && b < a * 10) {
-                            // Normal order: kcal/kJ (62/260)
-                            calories = a;
-                        } else if (a > b && a < b * 10) {
-                            // Reversed order: kJ/kcal (427/101) — swap
-                            calories = b;
-                        }
-                    }
-                }
-
-                if (protein === null) {
-                    const proteinMatch = sectionText.match(/Білки\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                    if (proteinMatch) {
-                        protein = parseFloat(proteinMatch[1].replace(',', '.'));
-                    }
-                }
-
-                if (fat === null) {
-                    const fatMatch = sectionText.match(/Жири\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                    if (fatMatch) {
-                        fat = parseFloat(fatMatch[1].replace(',', '.'));
-                    }
-                }
-
-                if (carbs === null) {
-                    const carbsMatch = sectionText.match(/Вуглеводи\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                    if (carbsMatch) {
-                        carbs = parseFloat(carbsMatch[1].replace(',', '.'));
-                    }
-                }
-
-                if (protein !== null && fat !== null && carbs !== null && calories !== null) break;
+            let nutrition;
+            if (currentSite === SITE_CONFIG.rozetka) {
+                nutrition = parseRozetkaNutrition(doc);
+            } else {
+                nutrition = parseSilpoNutrition(doc);
             }
 
-            // If not found in main sections, try fallback approach
-            if (protein === null || fat === null || carbs === null || calories === null) {
-                const allElements = Array.from(doc.querySelectorAll('*'));
-
-                for (const el of allElements) {
-                    const text = el.textContent;
-
-                    // Calories via NUMBER/ or NUMBER/NUMBER format (with swap if order is reversed)
-                    if (calories === null) {
-                        const match = text.match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)?/);
-                        if (match) {
-                            let a = parseFloat(match[1].replace(',', '.'));
-                            let b = match[2] ? parseFloat(match[2].replace(',', '.')) : null;
-                            if (b === null) {
-                                calories = a;
-                            } else if (b > a && b < a * 10) {
-                                calories = a;
-                            } else if (a > b && a < b * 10) {
-                                calories = b;
-                            }
-                        }
-                    }
-
-                    if (protein === null && /Білки.*?\(г\)/i.test(text)) {
-                        const match = text.match(/Білки.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                        if (match) protein = parseFloat(match[1].replace(',', '.'));
-                    }
-
-                    if (fat === null && /Жири.*?\(г\)/i.test(text)) {
-                        const match = text.match(/Жири.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                        if (match) fat = parseFloat(match[1].replace(',', '.'));
-                    }
-
-                    if (carbs === null && /Вуглеводи.*?\(г\)/i.test(text)) {
-                        const match = text.match(/Вуглеводи.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                        if (match) carbs = parseFloat(match[1].replace(',', '.'));
-                    }
-
-                    if (protein !== null && fat !== null && carbs !== null && calories !== null) break;
-                }
-            }
+            let { protein, fat, carbs, calories } = nutrition;
 
             // If not found — return null
             if (protein === null || fat === null || carbs === null) {
@@ -230,13 +352,13 @@
     }
 
     async function filterProducts(proteinOp, proteinVal, fatOp, fatVal, carbsOp, carbsVal, caloriesOp, caloriesVal, hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat, statusEl) {
-        // Find all product cards (multiple selectors for different page layouts)
-        const possibleSelectors = [
-            'article[class*="product"]',
-            'div[class*="product-card"]',
-            'a[href*="/product/"]',
-            '[data-testid*="product"]'
-        ];
+        if (!currentSite) {
+            statusEl.textContent = '❌ Невідомий сайт';
+            return;
+        }
+
+        // Find all product cards using site-specific selectors
+        const possibleSelectors = currentSite.productCardSelectors;
 
         let productCards = [];
         for (const selector of possibleSelectors) {
@@ -261,10 +383,10 @@
                 statusEl.textContent = `⛔ Зупинено. Перевірено: ${processed}, підходить: ${matched}, приховано: ${hidden}`;
                 return;
             }
-            // Find product link
-            let productLink = card.href || card.querySelector('a')?.href;
+            // Find product link using site-specific method
+            let productLink = currentSite.getProductLink(card);
 
-            if (!productLink || !productLink.includes('/product/')) {
+            if (!productLink || !currentSite.productLinkPattern.test(productLink)) {
                 continue;
             }
 
@@ -709,7 +831,11 @@
 
 
     // === INITIALIZATION ===
-    setTimeout(() => {
-        createFilterPanel();
-    }, 1000);
+    if (currentSite) {
+        setTimeout(() => {
+            createFilterPanel();
+        }, 1000);
+    } else {
+        console.log('БЖВК Filter: Unsupported site');
+    }
 })();
