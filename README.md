@@ -1,6 +1,6 @@
 # БЖВК Filter
 
-Browser extension that filters grocery products on [silpo.ua](https://silpo.ua) by nutritional values: protein, fat, carbs, and calories.
+Browser extension that filters grocery products on [silpo.ua](https://silpo.ua) and [foodboom.ua](https://foodboom.ua) by nutritional values: protein, fat, carbs, and calories.
 
 ## Install
 
@@ -10,6 +10,7 @@ Browser extension that filters grocery products on [silpo.ua](https://silpo.ua) 
 ## Features
 
 - Filter products by protein, fat, carbs, and calories with configurable operators (>, >=, =, <=, <)
+- "Protein more than fat" filter 💪
 - Color-coded product cards (green = match, red = no match, yellow = no data)
 - Nutrition data cached in localStorage for 7 days
 - Dark and light theme support
@@ -24,4 +25,4 @@ Browser extension that filters grocery products on [silpo.ua](https://silpo.ua) 
 
 ## Usage
 
-Navigate to any product listing page on silpo.ua. The filter panel appears in the top-right corner. Set your desired nutritional thresholds and click **Застосувати фільтр**.
+Navigate to any product listing page on silpo.ua or foodboom.ua. The filter panel appears in the top-right corner. Set your desired nutritional thresholds and click **Застосувати фільтр**.
