@@ -19,7 +19,7 @@
     },
     "content_scripts": [
         {
-            "matches": ["https://silpo.ua/*"],
+            "matches": ["https://silpo.ua/*", "https://foodboom.ua/*"],
             "css": ["styles.css"],
             "js": ["content.js"],
             "run_at": "document_idle"
