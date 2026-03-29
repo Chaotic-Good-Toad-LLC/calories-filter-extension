@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/viacheslav/devProjects/calories-filter-extension -type f -name *.html)"
+    ]
+  }
+}

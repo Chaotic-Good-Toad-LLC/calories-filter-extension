@@ -20,6 +20,175 @@
         filterValuesKey: 'calories_extention_filter_values',
         themeKey: 'calories_extention_theme'
     };
+
+    // === NUTRITION PARSERS ===
+
+    function parseSilpoNutrition(doc) {
+        // Find the nutrition section — more specific search
+        const nutritionSectionCandidates = Array.from(doc.querySelectorAll('*')).filter(el => {
+            const text = el.textContent;
+            return (text.includes('Харчова цінність') || text.includes('харчова цінність')) &&
+                text.includes('Білки');
+        });
+
+        // Sort from smallest element (most specific) to largest
+        nutritionSectionCandidates.sort((a, b) => a.textContent.length - b.textContent.length);
+
+        let protein = null;
+        let fat = null;
+        let carbs = null;
+        let calories = null;
+
+        // Search within the nutrition section
+        for (const section of nutritionSectionCandidates) {
+            const sectionText = section.textContent;
+
+            // Calories: match "NUMBER/NUMBER" (kcal/kJ) or just "NUMBER/" (no kJ)
+            // Sometimes the order is swapped (kJ/kcal), so we detect and swap back
+            if (calories === null) {
+                const caloriesMatch = sectionText.match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)?/);
+                if (caloriesMatch) {
+                    let a = parseFloat(caloriesMatch[1].replace(',', '.'));
+                    let b = caloriesMatch[2] ? parseFloat(caloriesMatch[2].replace(',', '.')) : null;
+                    if (b === null) {
+                        // Only one number before the slash — treat as kcal
+                        calories = a;
+                    } else if (b > a && b < a * 10) {
+                        // Normal order: kcal/kJ (62/260)
+                        calories = a;
+                    } else if (a > b && a < b * 10) {
+                        // Reversed order: kJ/kcal (427/101) — swap
+                        calories = b;
+                    }
+                }
+            }
+
+            if (protein === null) {
+                const proteinMatch = sectionText.match(/Білки\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
+                if (proteinMatch) {
+                    protein = parseFloat(proteinMatch[1].replace(',', '.'));
+                }
+            }
+
+            if (fat === null) {
+                const fatMatch = sectionText.match(/Жири\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
+                if (fatMatch) {
+                    fat = parseFloat(fatMatch[1].replace(',', '.'));
+                }
+            }
+
+            if (carbs === null) {
+                const carbsMatch = sectionText.match(/Вуглеводи\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
+                if (carbsMatch) {
+                    carbs = parseFloat(carbsMatch[1].replace(',', '.'));
+                }
+            }
+
+            if (protein !== null && fat !== null && carbs !== null && calories !== null) break;
+        }
+
+        // If not found in main sections, try fallback approach
+        if (protein === null || fat === null || carbs === null || calories === null) {
+            const allElements = Array.from(doc.querySelectorAll('*'));
+
+            for (const el of allElements) {
+                const text = el.textContent;
+
+                // Calories via NUMBER/ or NUMBER/NUMBER format (with swap if order is reversed)
+                if (calories === null) {
+                    const match = text.match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)?/);
+                    if (match) {
+                        let a = parseFloat(match[1].replace(',', '.'));
+                        let b = match[2] ? parseFloat(match[2].replace(',', '.')) : null;
+                        if (b === null) {
+                            calories = a;
+                        } else if (b > a && b < a * 10) {
+                            calories = a;
+                        } else if (a > b && a < b * 10) {
+                            calories = b;
+                        }
+                    }
+                }
+
+                if (protein === null && /Білки.*?\(г\)/i.test(text)) {
+                    const match = text.match(/Білки.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
+                    if (match) protein = parseFloat(match[1].replace(',', '.'));
+                }
+
+                if (fat === null && /Жири.*?\(г\)/i.test(text)) {
+                    const match = text.match(/Жири.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
+                    if (match) fat = parseFloat(match[1].replace(',', '.'));
+                }
+
+                if (carbs === null && /Вуглеводи.*?\(г\)/i.test(text)) {
+                    const match = text.match(/Вуглеводи.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
+                    if (match) carbs = parseFloat(match[1].replace(',', '.'));
+                }
+
+                if (protein !== null && fat !== null && carbs !== null && calories !== null) break;
+            }
+        }
+
+        if (protein === null || fat === null || carbs === null) return null;
+        if (calories === null) calories = 0;
+
+        return { protein, fat, carbs, calories };
+    }
+
+    function parseFoodBoomNutrition(doc) {
+        const container = doc.querySelector('.product_description_text');
+        const text = container?.textContent || doc.body?.textContent || '';
+
+        const proteinMatch = text.match(/білки\s*[-–—]\s*(\d+[.,]?\d*)\s*г/i);
+        const fatMatch     = text.match(/жири\s*[-–—]\s*(\d+[.,]?\d*)\s*г/i);
+        const carbsMatch   = text.match(/вуглеводи\s*[-–—]\s*(\d+[.,]?\d*)\s*г/i);
+        const calMatch     = text.match(/(\d{2,}[.,]?\d*)\s*ккал/i);
+
+        const parse = (m) => m ? parseFloat(m[1].replace(',', '.')) : null;
+        const protein  = parse(proteinMatch);
+        const fat      = parse(fatMatch);
+        const carbs    = parse(carbsMatch);
+        const calories = parse(calMatch);
+
+        if (protein === null || fat === null || carbs === null) return null;
+        return { protein, fat, carbs, calories: calories ?? 0 };
+    }
+
+    // === SITE CONFIG ===
+    const SITE_CONFIG = {
+        silpo: {
+            hostname: 'silpo.ua',
+            productCardSelectors: [
+                'article[class*="product"]',
+                'div[class*="product-card"]',
+                'a[href*="/product/"]',
+                '[data-testid*="product"]'
+            ],
+            productLinkPattern: /\/product\//,
+            getProductLink: (card) => card.href || card.querySelector('a')?.href,
+            parseNutrition: parseSilpoNutrition
+        },
+        foodboom: {
+            hostname: 'foodboom.ua',
+            productCardSelectors: [
+                '.card-item--float'
+            ],
+            productLinkPattern: /^https:\/\/foodboom\.ua\/[^/]+\/$/,
+            getProductLink: (card) => card.querySelector('.card-item__name a')?.href,
+            parseNutrition: parseFoodBoomNutrition
+        }
+    };
+
+    function detectSite() {
+        const hostname = window.location.hostname;
+        for (const site of Object.values(SITE_CONFIG)) {
+            if (hostname.includes(site.hostname)) return site;
+        }
+        return null;
+    }
+
+    const currentSite = detectSite();
+
     // === CACHE ===
     class NutritionCache {
         constructor() {
@@ -74,7 +243,7 @@
 
     let filterCancelled = false;
 
-    // === NUTRITION PARSING ===
+    // === NUTRITION FETCHING ===
     async function fetchNutritionInfo(url) {
         // Check cache
         const cached = cache.get(url);
@@ -92,125 +261,12 @@
             const html = await response.text();
             const doc = new DOMParser().parseFromString(html, 'text/html');
 
-            // Find the nutrition section — more specific search
-            const nutritionSectionCandidates = Array.from(doc.querySelectorAll('*')).filter(el => {
-                const text = el.textContent;
-                return (text.includes('Харчова цінність') || text.includes('харчова цінність')) &&
-                    text.includes('Білки');
-            });
+            const nutrition = currentSite.parseNutrition(doc);
+            if (!nutrition) return null;
 
-            // Sort from smallest element (most specific) to largest
-            nutritionSectionCandidates.sort((a, b) => a.textContent.length - b.textContent.length);
-
-            let protein = null;
-            let fat = null;
-            let carbs = null;
-            let calories = null;
-
-            // Search within the nutrition section
-            for (const section of nutritionSectionCandidates) {
-                const sectionText = section.textContent;
-
-                // Calories: match "NUMBER/NUMBER" (kcal/kJ) or just "NUMBER/" (no kJ)
-                // Sometimes the order is swapped (kJ/kcal), so we detect and swap back
-                if (calories === null) {
-                    const caloriesMatch = sectionText.match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)?/);
-                    if (caloriesMatch) {
-                        let a = parseFloat(caloriesMatch[1].replace(',', '.'));
-                        let b = caloriesMatch[2] ? parseFloat(caloriesMatch[2].replace(',', '.')) : null;
-                        if (b === null) {
-                            // Only one number before the slash — treat as kcal
-                            calories = a;
-                        } else if (b > a && b < a * 10) {
-                            // Normal order: kcal/kJ (62/260)
-                            calories = a;
-                        } else if (a > b && a < b * 10) {
-                            // Reversed order: kJ/kcal (427/101) — swap
-                            calories = b;
-                        }
-                    }
-                }
-
-                if (protein === null) {
-                    const proteinMatch = sectionText.match(/Білки\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                    if (proteinMatch) {
-                        protein = parseFloat(proteinMatch[1].replace(',', '.'));
-                    }
-                }
-
-                if (fat === null) {
-                    const fatMatch = sectionText.match(/Жири\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                    if (fatMatch) {
-                        fat = parseFloat(fatMatch[1].replace(',', '.'));
-                    }
-                }
-
-                if (carbs === null) {
-                    const carbsMatch = sectionText.match(/Вуглеводи\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                    if (carbsMatch) {
-                        carbs = parseFloat(carbsMatch[1].replace(',', '.'));
-                    }
-                }
-
-                if (protein !== null && fat !== null && carbs !== null && calories !== null) break;
-            }
-
-            // If not found in main sections, try fallback approach
-            if (protein === null || fat === null || carbs === null || calories === null) {
-                const allElements = Array.from(doc.querySelectorAll('*'));
-
-                for (const el of allElements) {
-                    const text = el.textContent;
-
-                    // Calories via NUMBER/ or NUMBER/NUMBER format (with swap if order is reversed)
-                    if (calories === null) {
-                        const match = text.match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)?/);
-                        if (match) {
-                            let a = parseFloat(match[1].replace(',', '.'));
-                            let b = match[2] ? parseFloat(match[2].replace(',', '.')) : null;
-                            if (b === null) {
-                                calories = a;
-                            } else if (b > a && b < a * 10) {
-                                calories = a;
-                            } else if (a > b && a < b * 10) {
-                                calories = b;
-                            }
-                        }
-                    }
-
-                    if (protein === null && /Білки.*?\(г\)/i.test(text)) {
-                        const match = text.match(/Білки.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                        if (match) protein = parseFloat(match[1].replace(',', '.'));
-                    }
-
-                    if (fat === null && /Жири.*?\(г\)/i.test(text)) {
-                        const match = text.match(/Жири.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                        if (match) fat = parseFloat(match[1].replace(',', '.'));
-                    }
-
-                    if (carbs === null && /Вуглеводи.*?\(г\)/i.test(text)) {
-                        const match = text.match(/Вуглеводи.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                        if (match) carbs = parseFloat(match[1].replace(',', '.'));
-                    }
-
-                    if (protein !== null && fat !== null && carbs !== null && calories !== null) break;
-                }
-            }
-
-            // If not found — return null
-            if (protein === null || fat === null || carbs === null) {
-                return null;
-            }
-
-            // Calories are optional — default to 0 if not found
-            if (calories === null) {
-                calories = 0;
-            }
-
-            // Save to cache
+            const { protein, fat, carbs, calories } = nutrition;
             cache.set(url, protein, fat, carbs, calories);
-
-            return { protein, fat, carbs, calories };
+            return nutrition;
         } catch (e) {
             console.error('Failed to fetch nutrition for', url, e);
             return null;
@@ -230,46 +286,50 @@
     }
 
     async function filterProducts(proteinOp, proteinVal, fatOp, fatVal, carbsOp, carbsVal, caloriesOp, caloriesVal, hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat, statusEl) {
-        // Find all product cards (multiple selectors for different page layouts)
-        const possibleSelectors = [
-            'article[class*="product"]',
-            'div[class*="product-card"]',
-            'a[href*="/product/"]',
-            '[data-testid*="product"]'
-        ];
-
         let productCards = [];
-        for (const selector of possibleSelectors) {
+        for (const selector of currentSite.productCardSelectors) {
             productCards = document.querySelectorAll(selector);
             if (productCards.length > 0) break;
         }
 
-        if (productCards.length === 0) {
+        // Count only cards that have a valid product link
+        const validCards = Array.from(productCards).filter(card => {
+            const link = currentSite.getProductLink(card);
+            return link && currentSite.productLinkPattern.test(link);
+        });
+
+        if (validCards.length === 0) {
             statusEl.textContent = '❌ Не знайдено товарів на цій сторінці';
             return;
         }
 
-        statusEl.textContent = `🔍 Знайдено ${productCards.length} товарів. Починаю перевірку...`;
+        statusEl.textContent = `🔍 Знайдено ${validCards.length} товарів. Починаю перевірку...`;
 
         filterCancelled = false;
         let processed = 0;
         let matched = 0;
         let hidden = 0;
 
-        for (const card of productCards) {
+        function createNutritionLabel(prefix, value, suffix) {
+            const div = document.createElement('div');
+            div.className = 'silpo-nutrition-label';
+            const strong = document.createElement('strong');
+            strong.textContent = prefix;
+            div.appendChild(strong);
+            div.appendChild(document.createTextNode(` ${value}${suffix}`));
+            return div;
+        }
+
+        for (const card of validCards) {
             if (filterCancelled) {
                 statusEl.textContent = `⛔ Зупинено. Перевірено: ${processed}, підходить: ${matched}, приховано: ${hidden}`;
                 return;
             }
-            // Find product link
-            let productLink = card.href || card.querySelector('a')?.href;
 
-            if (!productLink || !productLink.includes('/product/')) {
-                continue;
-            }
+            const productLink = currentSite.getProductLink(card);
 
             processed++;
-            statusEl.textContent = `⏳ Перевірка ${processed}/${productCards.length}... Знайдено: ${matched}`;
+            statusEl.textContent = `⏳ Перевірка ${processed}/${validCards.length}... Знайдено: ${matched}`;
 
             // Highlight the product being checked
             card.classList.add('silpo-checking');
@@ -319,16 +379,6 @@
             // Add nutrition info badge below the product
             const infoDiv = document.createElement('div');
             infoDiv.className = 'silpo-nutrition-info';
-
-            function createNutritionLabel(prefix, value, suffix) {
-                const div = document.createElement('div');
-                div.className = 'silpo-nutrition-label';
-                const strong = document.createElement('strong');
-                strong.textContent = prefix;
-                div.appendChild(strong);
-                div.appendChild(document.createTextNode(` ${value}${suffix}`));
-                return div;
-            }
 
             infoDiv.appendChild(createNutritionLabel('Б:', protein, 'г'));
             infoDiv.appendChild(createNutritionLabel('Ж:', fat, 'г'));
@@ -695,6 +745,12 @@
             document.querySelectorAll('.silpo-card-green, .silpo-card-red, .silpo-card-yellow').forEach(el => {
                 el.classList.remove('silpo-card-green', 'silpo-card-red', 'silpo-card-yellow');
             });
+            document.querySelectorAll('[data-protein]').forEach(el => {
+                delete el.dataset.protein;
+                delete el.dataset.fat;
+                delete el.dataset.carbs;
+                delete el.dataset.calories;
+            });
             statusEl.textContent = '♻️ Результати очищено';
         });
 
@@ -709,7 +765,11 @@
 
 
     // === INITIALIZATION ===
-    setTimeout(() => {
-        createFilterPanel();
-    }, 1000);
+    if (currentSite) {
+        setTimeout(() => {
+            createFilterPanel();
+        }, 1000);
+    } else {
+        console.log('БЖВК Filter: Unsupported site');
+    }
 })();
