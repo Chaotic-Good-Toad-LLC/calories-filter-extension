@@ -11,8 +11,11 @@
         fatOperator: '<=',
         carbsOperator: '<=',
         caloriesOperator: '<=',
-        cacheKey: 'calories_extention_nutrition_cache_v7',
+        // v8: unknown calories are null, not 0
+        cacheKey: 'calories_extention_nutrition_cache_v8',
+        oldCacheKeys: ['calories_extention_nutrition_cache_v7'],
         cacheExpiry: 604800000, // 7 days
+        requestDelay: 100, // ms after each product page request, to avoid rate limiting
         hideWithoutNutritionKey: 'calories_extention_hide_without_nutrition',
         hideNonMatchingKey: 'calories_extention_hide_non_matching',
         onlyProteinMoreThanFatKey: 'calories_extention_only_protein_more_than_fat',
@@ -42,6 +45,7 @@
 
         load() {
             try {
+                CONFIG.oldCacheKeys.forEach(key => localStorage.removeItem(key));
                 const cached = localStorage.getItem(CONFIG.cacheKey);
                 if (!cached) return {};
                 const parsed = JSON.parse(cached);
@@ -101,21 +105,25 @@
             };
         }
 
+        let html;
         try {
             const response = await fetch(url);
-            const html = await response.text();
-            const doc = new DOMParser().parseFromString(html, 'text/html');
-
-            const nutrition = currentSite.parseNutrition(doc);
-            if (!nutrition) return null;
-
-            const { protein, fat, carbs, calories } = nutrition;
-            cache.set(url, protein, fat, carbs, calories);
-            return nutrition;
+            html = await response.text();
         } catch (e) {
             console.error('Failed to fetch nutrition for', url, e);
             return null;
+        } finally {
+            // Only requests are spaced out; cache hits return straight away
+            await new Promise(resolve => setTimeout(resolve, CONFIG.requestDelay));
         }
+
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const nutrition = currentSite.parseNutrition(doc);
+        if (!nutrition) return null;
+
+        const { protein, fat, carbs, calories } = nutrition;
+        cache.set(url, protein, fat, carbs, calories);
+        return nutrition;
     }
 
     // === CRITERIA ===
@@ -156,29 +164,8 @@
         return div;
     }
 
-    function storeCardNutrition(card, nutrition) {
-        if (nutrition) {
-            card.dataset.protein = nutrition.protein;
-            card.dataset.fat = nutrition.fat;
-            card.dataset.carbs = nutrition.carbs;
-            card.dataset.calories = nutrition.calories;
-        } else {
-            delete card.dataset.protein;
-            delete card.dataset.fat;
-            delete card.dataset.carbs;
-            delete card.dataset.calories;
-        }
-    }
-
-    function readCardNutrition(card) {
-        if (card.dataset.protein === undefined) return null;
-        return {
-            protein: parseFloat(card.dataset.protein),
-            fat: parseFloat(card.dataset.fat),
-            carbs: parseFloat(card.dataset.carbs),
-            calories: parseFloat(card.dataset.calories)
-        };
-    }
+    // Every card a Scan has marked → its Nutrition (null for no data), so checkbox changes can re-evaluate it
+    const scannedCards = new Map();
 
     // Removes a card's badge, colour and hiding
     function unmarkCard(card) {
@@ -211,7 +198,7 @@
         infoDiv.appendChild(createNutritionLabel('Ж:', fat, 'г'));
         infoDiv.appendChild(createNutritionLabel('В:', carbs, 'г'));
 
-        if (calories > 0) {
+        if (calories !== null) {
             const calDiv = document.createElement('div');
             calDiv.className = 'silpo-nutrition-label';
             if (isMatch) {
@@ -238,6 +225,18 @@
     }
 
     // === PRODUCT FILTERING ===
+    // Counts for the status line, from each card's current state
+    function countCards(cards) {
+        const criteria = currentCriteria();
+        const counts = { match: 0, miss: 0, noData: 0, hidden: 0 };
+        for (const card of cards) {
+            const result = evaluate(scannedCards.get(card), criteria);
+            counts[result.verdict]++;
+            if (result.hidden) counts.hidden++;
+        }
+        return counts;
+    }
+
     async function filterProducts(statusEl) {
         const products = currentSite.findProducts(document);
 
@@ -249,20 +248,18 @@
         statusEl.textContent = `🔍 Знайдено ${products.length} товарів. Починаю перевірку...`;
 
         filterCancelled = false;
-        let processed = 0;
-        let matched = 0;
-        let hidden = 0;
+        const checked = [];
 
         // url is read here, just before the fetch, since the site may have re-rendered the card
         for (const { card, url } of products) {
             if (filterCancelled) {
-                statusEl.textContent = `⛔ Зупинено. Перевірено: ${processed}, підходить: ${matched}, приховано: ${hidden}`;
+                const { match, hidden } = countCards(checked);
+                statusEl.textContent = `⛔ Зупинено. Перевірено: ${checked.length}, підходить: ${match}, приховано: ${hidden}`;
                 return;
             }
 
-            processed++;
+            statusEl.textContent = `⏳ Перевірка ${checked.length + 1}/${products.length}... Знайдено: ${countCards(checked).match}`;
             if (!url) continue;
-            statusEl.textContent = `⏳ Перевірка ${processed}/${products.length}... Знайдено: ${matched}`;
 
             // Highlight the product being checked
             card.classList.add('silpo-checking');
@@ -272,40 +269,35 @@
             // Remove highlight
             card.classList.remove('silpo-checking');
 
-            // Store nutrition data on card so checkbox changes can re-evaluate it
-            storeCardNutrition(card, nutrition);
-
-            const result = evaluate(nutrition, currentCriteria());
-            markCard(card, nutrition, result);
-
-            if (result.verdict === 'match') {
-                matched++;
-            } else if (result.verdict === 'miss' || result.hidden) {
-                hidden++;
-            }
-
-            if (!nutrition) continue;
-
-            // Small delay to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 100));
+            scannedCards.set(card, nutrition);
+            checked.push(card);
+            markCard(card, nutrition, evaluate(nutrition, currentCriteria()));
         }
 
-        statusEl.textContent = readCheckboxFlags().hideNonMatching
-            ? `✅ Готово! Показано: ${matched}, приховано: ${hidden}`
-            : `✅ Готово! Підходить: ${matched}, не підходить: ${hidden}`;
+        const { match, miss, noData, hidden } = countCards(checked);
+        if (readCheckboxFlags().hideNonMatching) {
+            statusEl.textContent = `✅ Готово! Показано: ${checked.length - hidden}, приховано: ${hidden}`;
+        } else {
+            statusEl.textContent = `✅ Готово! Підходить: ${match}, не підходить: ${miss}` +
+                (noData > 0 ? `, без даних: ${noData}` : '');
+        }
     }
 
     // === DYNAMIC VISIBILITY ===
-    function applyVisibility() {
-        // Re-evaluate every scanned card against the applied Criteria and the new checkbox flags
-        if (appliedCriteria) {
-            const criteria = currentCriteria();
-            document.querySelectorAll('[data-protein], .silpo-card-yellow').forEach(card => {
-                const nutrition = readCardNutrition(card);
-                markCard(card, nutrition, evaluate(nutrition, criteria));
-            });
+    // Re-draws every scanned card by the applied Criteria and the current checkbox flags
+    function refreshScannedCards() {
+        const criteria = currentCriteria();
+        for (const [card, nutrition] of scannedCards) {
+            if (!card.isConnected) {
+                scannedCards.delete(card);
+                continue;
+            }
+            markCard(card, nutrition, evaluate(nutrition, criteria));
         }
+    }
 
+    function applyVisibility() {
+        if (appliedCriteria) refreshScannedCards();
         saveCheckboxFlags();
     }
 
@@ -523,6 +515,8 @@
                 caloriesVal
             };
             appliedCriteria = filterValues;
+            // Cards from an earlier Scan follow the new Criteria straight away, not only once reached
+            refreshScannedCards();
             try {
                 localStorage.setItem(CONFIG.filterValuesKey, JSON.stringify(filterValues));
             } catch (e) {
@@ -546,10 +540,8 @@
         });
 
         resetBtn.addEventListener('click', () => {
-            document.querySelectorAll('[data-protein], .silpo-card-yellow, .silpo-hidden').forEach(card => {
-                unmarkCard(card);
-                storeCardNutrition(card, null);
-            });
+            scannedCards.forEach((nutrition, card) => unmarkCard(card));
+            scannedCards.clear();
             statusEl.textContent = '♻️ Результати очищено';
         });
 

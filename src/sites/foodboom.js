@@ -2,6 +2,8 @@
     'use strict';
 
     const BZVK = root.BZVK = root.BZVK || { sites: {} };
+    if (typeof module !== 'undefined' && module.exports) require('./adapter-kit.js');
+    const { toNumber, productList } = BZVK.adapterKit;
 
     // Characteristics rows, both the full table and the "key characteristics" block:
     // label "Білки, г", value "2"
@@ -12,7 +14,7 @@
             const label = row.querySelector('.description, .primary-attrs__title')?.textContent || '';
             if (!labelPattern.test(label)) continue;
             const value = row.querySelector('.value, .primary-attrs__value')?.textContent.match(/\d+(?:[.,]\d+)?/);
-            if (value) return parseFloat(value[0].replace(',', '.'));
+            if (value) return toNumber(value[0]);
         }
         return null;
     }
@@ -37,14 +39,14 @@
         const carbsMatch   = text.match(/вуглеводи\s*[-–—]\s*(\d+[.,]?\d*)\s*г/i);
         const calMatch     = text.match(/(\d{2,}[.,]?\d*)\s*ккал/i);
 
-        const parse = (m) => m ? parseFloat(m[1].replace(',', '.')) : null;
+        const parse = (m) => m ? toNumber(m[1]) : null;
         const protein  = parse(proteinMatch);
         const fat      = parse(fatMatch);
         const carbs    = parse(carbsMatch);
         const calories = parse(calMatch);
 
         if (protein === null || fat === null || carbs === null) return null;
-        return { protein, fat, carbs, calories: calories ?? 0 };
+        return { protein, fat, carbs, calories };
     }
 
     function parseFoodBoomNutrition(doc) {
@@ -53,7 +55,7 @@
         // is not topped up from it, since the body text can include other products
         if (protein === null && fat === null && carbs === null) return parseDescription(doc);
         if (protein === null || fat === null || carbs === null) return null;
-        return { protein, fat, carbs, calories: calories ?? 0 };
+        return { protein, fat, carbs, calories };
     }
 
     const PRODUCT_LINK = /^https:\/\/foodboom\.ua\/[^/]+\/$/;
@@ -63,11 +65,8 @@
         return url && PRODUCT_LINK.test(url) ? url : null;
     }
 
-    // url is read each time it is used, so a card the site re-renders mid-Scan gives its current link
     function findProducts(doc) {
-        return Array.from(doc.querySelectorAll('.card.card--float'))
-            .filter(card => productUrl(card))
-            .map(card => ({ card, get url() { return productUrl(card); } }));
+        return productList(doc.querySelectorAll('.card.card--float'), productUrl);
     }
 
     BZVK.sites.foodboom = {
