@@ -56,13 +56,23 @@
         return { protein, fat, carbs, calories: calories ?? 0 };
     }
 
+    const PRODUCT_LINK = /^https:\/\/foodboom\.ua\/[^/]+\/$/;
+
+    function productUrl(card) {
+        const url = card.querySelector('a.card-title')?.href;
+        return url && PRODUCT_LINK.test(url) ? url : null;
+    }
+
+    // url is read each time it is used, so a card the site re-renders mid-Scan gives its current link
+    function findProducts(doc) {
+        return Array.from(doc.querySelectorAll('.card.card--float'))
+            .filter(card => productUrl(card))
+            .map(card => ({ card, get url() { return productUrl(card); } }));
+    }
+
     BZVK.sites.foodboom = {
         hostname: 'foodboom.ua',
-        productCardSelectors: [
-            '.card.card--float'
-        ],
-        productLinkPattern: /^https:\/\/foodboom\.ua\/[^/]+\/$/,
-        getProductLink: (card) => card.querySelector('a.card-title')?.href,
+        findProducts,
         parseNutrition: parseFoodBoomNutrition
     };
 

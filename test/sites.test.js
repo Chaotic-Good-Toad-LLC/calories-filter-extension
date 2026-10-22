@@ -41,6 +41,30 @@ test('foodboom parseNutrition still reads nutrition written in the description',
     assert.deepEqual(foodboom.parseNutrition(doc), { protein: 7.5, fat: 3, carbs: 60, calories: 310 });
 });
 
+const listings = [
+    [silpo, 'https://silpo.ua/category/molochni-produkty-ta-iaitsia-234', 'silpo/listing-dairy.html.gz', 47],
+    [foodboom, 'https://foodboom.ua/gorichi-v-shokoladi/', 'foodboom/listing-nuts-in-chocolate.html.gz', 36],
+];
+
+for (const [site, url, fixture, count] of listings) {
+    test(`${site.hostname} findProducts: every card on ${fixture} with its product url`, () => {
+        const doc = new JSDOM(loadFixture(fixture), { url }).window.document;
+        const products = site.findProducts(doc);
+        assert.equal(products.length, count);
+        for (const { card, url: productUrl } of products) {
+            assert.ok(card.nodeType === 1, 'card is an element');
+            assert.match(productUrl, new RegExp(`^https://${site.hostname.replace('.', '\\.')}/`));
+        }
+        assert.equal(new Set(products.map(p => p.url)).size, count, 'one card per product');
+    });
+}
+
+test('silpo findProducts skips cards whose link is not a product', () => {
+    const doc = new JSDOM(`<article class="product-card"><a href="/product/kefir-1">Кефір</a></article>
+        <article class="product-card"><a href="/category/promo">Акція</a></article>`, { url: 'https://silpo.ua/category/x' }).window.document;
+    assert.deepEqual(silpo.findProducts(doc).map(p => p.url), ['https://silpo.ua/product/kefir-1']);
+});
+
 // Starts a Scan on a saved listing page and reads how many products it found.
 // fetch never resolves, so the Scan stays on its first product.
 async function scanProductCount(url, fixture) {
