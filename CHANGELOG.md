@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.15
+- Fix foodboom.ua after its redesign: find cards by `.card.card--float` and read nutrition from the characteristics table
 - Split content.js into content scripts: src/match.js, one Site adapter per store in src/sites/, and content.js
 - Add tests (node --test + jsdom) against saved silpo and foodboom pages
 - Add scripts/package.sh to build the store zips from an explicit allow-list
