@@ -11,8 +11,8 @@ Browser extension (Manifest V3, Chrome and Firefox) for silpo.ua and foodboom.ua
 This is a plain JS/CSS content script extension with no build step and no runtime dependencies. The content scripts are listed in `manifest.json` and load in order into one isolated world; each `src/` file attaches its exports to `globalThis.BZVK` (and to `module.exports` when loaded by Node for tests).
 
 - `manifest.json` — Manifest V3 config, injects the content scripts on `https://silpo.ua/*` and `https://foodboom.ua/*`
-- `src/match.js` — `BZVK.match`: comparison of a nutrition value against an operator and target
-- `src/sites/silpo.js`, `src/sites/foodboom.js` — `BZVK.sites.<site>`: one Site adapter per store (card selectors, product link rules, Nutrition parser)
+- `src/match.js` — `BZVK.match.evaluate(nutrition, criteria)`: the Verdict for one product and whether its card is hidden
+- `src/sites/silpo.js`, `src/sites/foodboom.js` — `BZVK.sites.<site>`: one Site adapter per store, `{ hostname, findProducts(doc) → [{ card, url }], parseNutrition(doc) → Nutrition | null }`
 - `content.js` — site detection, nutrition cache, product page fetching, the Scan, and the filter UI panel
 - `styles.css` — Styling for the filter panel and product card badges (dark/light themes)
 - `icons/` — Extension icons (16, 48, 128px)
@@ -22,7 +22,7 @@ This is a plain JS/CSS content script extension with no build step and no runtim
 - **Nutrition parsing**: Fetches individual product pages via `fetch()` and hands the parsed document to the current Site adapter. Silpo's parser reads the "Харчова цінність" section with regexes and handles kcal/kJ swap detection.
 - **Caching**: `NutritionCache` class stores parsed nutrition data in `localStorage` with 7-day expiry. Cache key: `calories_extention_nutrition_cache_v7`.
 - **Filter panel**: Fixed-position UI injected into the page. Filter values, checkbox states, panel minimized state, and theme preference are all persisted in `localStorage`.
-- **Product detection**: Each Site adapter lists CSS selectors to try in order for product cards (silpo: `article[class*="product"]`, `div[class*="product-card"]`, etc., since its layout may vary) and a pattern for valid product links.
+- **Product detection**: Each Site adapter's `findProducts` returns only cards with a valid product link. Silpo tries several card selectors in order (`article[class*="product"]`, `div[class*="product-card"]`, etc.) since its layout may vary.
 
 ## Development
 

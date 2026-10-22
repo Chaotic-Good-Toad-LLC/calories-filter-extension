@@ -51,13 +51,17 @@
         return parseCharacteristics(doc) || parseDescription(doc);
     }
 
+    const PRODUCT_LINK = /^https:\/\/foodboom\.ua\/[^/]+\/$/;
+
+    function findProducts(doc) {
+        return Array.from(doc.querySelectorAll('.card.card--float'))
+            .map(card => ({ card, url: card.querySelector('a.card-title')?.href }))
+            .filter(({ url }) => url && PRODUCT_LINK.test(url));
+    }
+
     BZVK.sites.foodboom = {
         hostname: 'foodboom.ua',
-        productCardSelectors: [
-            '.card.card--float'
-        ],
-        productLinkPattern: /^https:\/\/foodboom\.ua\/[^/]+\/$/,
-        getProductLink: (card) => card.querySelector('a.card-title')?.href,
+        findProducts,
         parseNutrition: parseFoodBoomNutrition
     };
 

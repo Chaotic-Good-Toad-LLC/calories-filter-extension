@@ -223,45 +223,33 @@
 
     // === PRODUCT FILTERING ===
     async function filterProducts(statusEl) {
-        let productCards = [];
-        for (const selector of currentSite.productCardSelectors) {
-            productCards = document.querySelectorAll(selector);
-            if (productCards.length > 0) break;
-        }
+        const products = currentSite.findProducts(document);
 
-        // Count only cards that have a valid product link
-        const validCards = Array.from(productCards).filter(card => {
-            const link = currentSite.getProductLink(card);
-            return link && currentSite.productLinkPattern.test(link);
-        });
-
-        if (validCards.length === 0) {
+        if (products.length === 0) {
             statusEl.textContent = '❌ Не знайдено товарів на цій сторінці';
             return;
         }
 
-        statusEl.textContent = `🔍 Знайдено ${validCards.length} товарів. Починаю перевірку...`;
+        statusEl.textContent = `🔍 Знайдено ${products.length} товарів. Починаю перевірку...`;
 
         filterCancelled = false;
         let processed = 0;
         let matched = 0;
         let hidden = 0;
 
-        for (const card of validCards) {
+        for (const { card, url } of products) {
             if (filterCancelled) {
                 statusEl.textContent = `⛔ Зупинено. Перевірено: ${processed}, підходить: ${matched}, приховано: ${hidden}`;
                 return;
             }
 
-            const productLink = currentSite.getProductLink(card);
-
             processed++;
-            statusEl.textContent = `⏳ Перевірка ${processed}/${validCards.length}... Знайдено: ${matched}`;
+            statusEl.textContent = `⏳ Перевірка ${processed}/${products.length}... Знайдено: ${matched}`;
 
             // Highlight the product being checked
             card.classList.add('silpo-checking');
 
-            const nutrition = await fetchNutritionInfo(productLink);
+            const nutrition = await fetchNutritionInfo(url);
 
             // Remove highlight
             card.classList.remove('silpo-checking');
