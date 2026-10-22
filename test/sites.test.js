@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const silpo = require('../src/sites/silpo.js');
 const foodboom = require('../src/sites/foodboom.js');
+const { JSDOM } = require('jsdom');
 const { parseFixture, loadFixture, loadExtension, waitFor } = require('./helpers.js');
 
 // Expected values are what the parser returned when the pages were captured (2026-10-22).
@@ -23,11 +24,21 @@ for (const [fixture, expected] of silpoProducts) {
     });
 }
 
-test('foodboom parseNutrition: product-nut-mix', { todo: 'foodboom redesign moved nutrition into a characteristics table' }, () => {
-    assert.deepEqual(
-        foodboom.parseNutrition(parseFixture('foodboom/product-nut-mix.html.gz')),
-        { protein: 2, fat: 11.2, carbs: 67.8, calories: 382 }
-    );
+const foodboomProducts = [
+    ['product-nut-mix.html.gz', { protein: 2, fat: 11.2, carbs: 67.8, calories: 382 }],
+    ['product-kombucha.html.gz', { protein: 0, fat: 0, carbs: 6, calories: 24 }],
+    ['product-tea-gift-set.html.gz', null],
+];
+
+for (const [fixture, expected] of foodboomProducts) {
+    test(`foodboom parseNutrition: ${fixture}`, () => {
+        assert.deepEqual(foodboom.parseNutrition(parseFixture(`foodboom/${fixture}`)), expected);
+    });
+}
+
+test('foodboom parseNutrition still reads nutrition written in the description', () => {
+    const doc = new JSDOM('<div class="product_description_text">Харчова цінність: білки – 7,5 г, жири – 3 г, вуглеводи – 60 г, 310 ккал</div>').window.document;
+    assert.deepEqual(foodboom.parseNutrition(doc), { protein: 7.5, fat: 3, carbs: 60, calories: 310 });
 });
 
 // Starts a Scan on a saved listing page and reads how many products it found.
@@ -47,6 +58,16 @@ test('silpo Scan finds the products on a category page', async () => {
     assert.equal(await scanProductCount('https://silpo.ua/category/molochni-produkty-ta-iaitsia-234', 'silpo/listing-dairy.html.gz'), 47);
 });
 
-test('foodboom Scan finds the products on a category page', { todo: 'foodboom redesign renamed cards to .card.card--float' }, async () => {
+test('foodboom Scan finds the products on a category page', async () => {
     assert.equal(await scanProductCount('https://foodboom.ua/gorichi-v-shokoladi/', 'foodboom/listing-nuts-in-chocolate.html.gz'), 36);
 });
+
+test('foodboom parseNutrition does not fill a partial table from the description', () => {
+    const doc = new JSDOM(`<div class="product-characteristics__item">
+        <div class="row"><span class="description">Білки, г</span><span class="value">2</span></div>
+        <div class="row"><span class="description">Жири, г</span><span class="value">11,2</span></div>
+    </div>
+    <div class="related">Інший товар: білки – 7 г, жири – 3 г, вуглеводи – 60 г</div>`).window.document;
+    assert.equal(foodboom.parseNutrition(doc), null);
+});
+
