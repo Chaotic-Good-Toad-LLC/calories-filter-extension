@@ -26,7 +26,7 @@ This is a plain JS/CSS content script extension with no build step and no runtim
 
 ## Development
 
-No build tools. Load as unpacked extension in Chrome via `chrome://extensions` with Developer Mode enabled. Reload the extension after changes. A new content script file must be added to `manifest.json` `content_scripts.js` and to the allow-list in `scripts/package.sh`.
+No build tools. Load as unpacked extension in Chrome via `chrome://extensions` with Developer Mode enabled. Reload the extension after changes. A new content script file must be added to `manifest.json` `content_scripts.js` (in load order); files under `src/` are already in the `scripts/package.sh` allow-list, other new top-level files must be added there.
 
 - `npm install` once, then `npm test` — runs `node --test` over `test/**/*.test.js`. `package.json` and jsdom are dev-only and never ship.
 - Tests run against saved store pages in `test/fixtures/<site>/*.html.gz` (full pages, gzipped; product pages are the raw `fetch()` response, listing pages are the live DOM). Silpo is behind Cloudflare, so capture its pages from a real browser session, not curl.
