@@ -17,14 +17,14 @@
         return null;
     }
 
+    // Each value is null when the table has no row for it
     function parseCharacteristics(doc) {
-        const protein  = readCharacteristic(doc, /^\s*Білки,\s*г/i);
-        const fat      = readCharacteristic(doc, /^\s*Жири,\s*г/i);
-        const carbs    = readCharacteristic(doc, /^\s*Вуглеводи,\s*г/i);
-        const calories = readCharacteristic(doc, /Енергетична цінність,\s*ккал/i);
-
-        if (protein === null || fat === null || carbs === null) return null;
-        return { protein, fat, carbs, calories: calories ?? 0 };
+        return {
+            protein:  readCharacteristic(doc, /^\s*Білки,\s*г/i),
+            fat:      readCharacteristic(doc, /^\s*Жири,\s*г/i),
+            carbs:    readCharacteristic(doc, /^\s*Вуглеводи,\s*г/i),
+            calories: readCharacteristic(doc, /Енергетична цінність,\s*ккал/i)
+        };
     }
 
     // Older product pages list nutrition in the description: "білки – 2 г"
@@ -48,7 +48,12 @@
     }
 
     function parseFoodBoomNutrition(doc) {
-        return parseCharacteristics(doc) || parseDescription(doc);
+        const { protein, fat, carbs, calories } = parseCharacteristics(doc);
+        // Only pages whose table has no macros at all use the description; a partial table
+        // is not topped up from it, since the body text can include other products
+        if (protein === null && fat === null && carbs === null) return parseDescription(doc);
+        if (protein === null || fat === null || carbs === null) return null;
+        return { protein, fat, carbs, calories: calories ?? 0 };
     }
 
     const PRODUCT_LINK = /^https:\/\/foodboom\.ua\/[^/]+\/$/;

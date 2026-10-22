@@ -85,3 +85,13 @@ test('silpo Scan finds the products on a category page', async () => {
 test('foodboom Scan finds the products on a category page', async () => {
     assert.equal(await scanProductCount('https://foodboom.ua/gorichi-v-shokoladi/', 'foodboom/listing-nuts-in-chocolate.html.gz'), 36);
 });
+
+test('foodboom parseNutrition does not fill a partial table from the description', () => {
+    const doc = new JSDOM(`<div class="product-characteristics__item">
+        <div class="row"><span class="description">Білки, г</span><span class="value">2</span></div>
+        <div class="row"><span class="description">Жири, г</span><span class="value">11,2</span></div>
+    </div>
+    <div class="related">Інший товар: білки – 7 г, жири – 3 г, вуглеводи – 60 г</div>`).window.document;
+    assert.equal(foodboom.parseNutrition(doc), null);
+});
+

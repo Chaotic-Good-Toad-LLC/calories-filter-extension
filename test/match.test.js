@@ -20,6 +20,13 @@ test('compareValue "=" allows less than 0.1g either side', () => {
     assert.equal(compareValue(10.2, '=', 10), false);
 });
 
+test('compareValue: an empty field sets no limit', () => {
+    for (const target of [null, undefined, NaN]) {
+        assert.equal(compareValue(5, '>=', target), true, String(target));
+        assert.equal(compareValue(5, '=', target), true, String(target));
+    }
+});
+
 test('compareValue passes on an unknown operator', () => {
     assert.equal(compareValue(1, '??', 100), true);
 });
