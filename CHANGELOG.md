@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.15
+- Fix checkboxes hiding products by unapplied filter values, leaving card colours stale, or not bringing back products hidden for having no data
 - Fix foodboom.ua after its redesign: find cards by `.card.card--float` and read nutrition from the characteristics table
 - Split content.js into content scripts: src/match.js, one Site adapter per store in src/sites/, and content.js
 - Add tests (node --test + jsdom) against saved silpo and foodboom pages
