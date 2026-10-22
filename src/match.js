@@ -9,7 +9,8 @@
         switch (operator) {
             case '<': return actual < target;
             case '<=': return actual <= target;
-            case '=': return Math.abs(actual - target) < 0.1; // 0.1g tolerance
+            // Values are given to 0.1 g, so compare them rounded to that (10.04 = 10, 10.1 ≠ 10)
+            case '=': return Math.round(actual * 10) === Math.round(target * 10);
             case '>=': return actual >= target;
             case '>': return actual > target;
             default: return true;
@@ -17,7 +18,7 @@
     }
 
     // Decides one product's Verdict against the Criteria, and whether its card is hidden.
-    // nutrition: { protein, fat, carbs, calories } or null; calories 0 means "unknown" and always passes.
+    // nutrition: { protein, fat, carbs, calories } or null; calories null means "unknown" and always passes.
     // criteria: { proteinOp, proteinVal, fatOp, fatVal, carbsOp, carbsVal, caloriesOp, caloriesVal,
     //             hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat }
     function evaluate(nutrition, criteria) {
@@ -30,7 +31,7 @@
         const isMatch = compareValue(protein, criteria.proteinOp, criteria.proteinVal) &&
             compareValue(fat, criteria.fatOp, criteria.fatVal) &&
             compareValue(carbs, criteria.carbsOp, criteria.carbsVal) &&
-            (calories > 0 ? compareValue(calories, criteria.caloriesOp, criteria.caloriesVal) : true) &&
+            (calories === null ? true : compareValue(calories, criteria.caloriesOp, criteria.caloriesVal)) &&
             (criteria.onlyProteinMoreThanFat ? proteinMoreThanFat : true);
 
         // "Only protein > fat" hides its misses even when non-matching cards are shown

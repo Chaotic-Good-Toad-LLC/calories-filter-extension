@@ -14,10 +14,13 @@ test('compareValue applies each operator', () => {
     }
 });
 
-test('compareValue "=" allows less than 0.1g either side', () => {
-    assert.equal(compareValue(10.05, '=', 10), true);
-    assert.equal(compareValue(9.95, '=', 10), true);
-    assert.equal(compareValue(10.2, '=', 10), false);
+test('compareValue "=" compares values rounded to 0.1 g', () => {
+    assert.equal(compareValue(10.04, '=', 10), true);
+    assert.equal(compareValue(9.96, '=', 10), true);
+    assert.equal(compareValue(2.1, '=', 2.1), true);
+    // the same 0.1 g step gives the same answer at any size
+    assert.equal(compareValue(10.1, '=', 10), false);
+    assert.equal(compareValue(2.1, '=', 2), false);
 });
 
 test('compareValue: an empty field sets no limit', () => {
@@ -66,8 +69,14 @@ test('evaluate: Verdict and visibility for each combination of flags', () => {
     }
 });
 
-test('evaluate: calories 0 means unknown and always passes the calories criterion', () => {
-    const noCalories = { ...lean, calories: 0 };
+test('evaluate: calories null means unknown and always passes the calories criterion', () => {
+    const noCalories = { ...lean, calories: null };
     assert.equal(evaluate(noCalories, { ...DEFAULTS, caloriesOp: '>', caloriesVal: 1000 }).verdict, 'match');
     assert.equal(evaluate(lean, { ...DEFAULTS, caloriesOp: '>', caloriesVal: 1000 }).verdict, 'miss');
+});
+
+test('evaluate: calories 0 is a real value, not unknown', () => {
+    const water = { protein: 0, fat: 0, carbs: 0, calories: 0 };
+    const criteria = { ...DEFAULTS, proteinVal: 0, caloriesOp: '>=', caloriesVal: 10 };
+    assert.equal(evaluate(water, criteria).verdict, 'miss');
 });

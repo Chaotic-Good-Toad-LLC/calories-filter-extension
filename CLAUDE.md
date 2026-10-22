@@ -12,6 +12,7 @@ This is a plain JS/CSS content script extension with no build step and no runtim
 
 - `manifest.json` — Manifest V3 config, injects the content scripts on `https://silpo.ua/*` and `https://foodboom.ua/*`
 - `src/match.js` — `BZVK.match.evaluate(nutrition, criteria)`: the Verdict for one product and whether its card is hidden
+- `src/sites/adapter-kit.js` — `BZVK.adapterKit`: helpers the Site adapters share (decimal-comma numbers, `findProducts`' result list)
 - `src/sites/silpo.js`, `src/sites/foodboom.js` — `BZVK.sites.<site>`: one Site adapter per store, `{ hostname, findProducts(doc) → [{ card, url }], parseNutrition(doc) → Nutrition | null }`
 - `content.js` — site detection, nutrition cache, product page fetching, the Scan, and the filter UI panel
 - `styles.css` — Styling for the filter panel and product card badges (dark/light themes)
@@ -19,10 +20,11 @@ This is a plain JS/CSS content script extension with no build step and no runtim
 
 ## Key Concepts
 
-- **Nutrition parsing**: Fetches individual product pages via `fetch()` and hands the parsed document to the current Site adapter. Silpo's parser reads the "Харчова цінність" section with regexes and handles kcal/kJ swap detection.
-- **Caching**: `NutritionCache` class stores parsed nutrition data in `localStorage` with 7-day expiry. Cache key: `calories_extention_nutrition_cache_v7`.
+- **Nutrition parsing**: Fetches individual product pages via `fetch()` and hands the parsed document to the current Site adapter. Silpo's parser reads the "Харчова цінність" section with regexes and handles kcal/kJ swap detection; calories are only read right after their label. Unknown calories are `null`; `0` is a real value.
+- **Request pacing**: each product page request is followed by a 100 ms pause (`CONFIG.requestDelay`); cache hits are not delayed.
+- **Caching**: `NutritionCache` class stores parsed nutrition data in `localStorage` with 7-day expiry. Cache key: `calories_extention_nutrition_cache_v8` (bump it when the stored shape or meaning changes, and add the old key to `CONFIG.oldCacheKeys`).
 - **Filter panel**: Fixed-position UI injected into the page. Filter values, checkbox states, panel minimized state, and theme preference are all persisted in `localStorage`.
-- **Product detection**: Each Site adapter's `findProducts` returns only cards with a valid product link. Each `url` is a getter that re-reads the card's link, so the Scan gets the current product even if the site re-renders the card mid-Scan. Silpo tries several card selectors in order (`article[class*="product"]`, `div[class*="product-card"]`, etc.) since its layout may vary.
+- **Product detection**: Each Site adapter's `findProducts` returns only cards with a valid product link. Each `url` is a getter that re-reads the card's link, so the Scan gets the current product even if the site re-renders the card mid-Scan. Silpo tries several card selectors in order (`article[class*="product"]`, `div[class*="product-card"]`, etc.) since its layout may vary; the fallbacks match pieces of a card, which are merged into one card per product.
 
 ## Development
 

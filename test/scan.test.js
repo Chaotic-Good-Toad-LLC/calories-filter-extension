@@ -25,12 +25,15 @@ function silpoListingPage(names) {
     return `<html><body>${cards.join('')}</body></html>`;
 }
 
-async function openListing(names) {
+// onFetch(name, window) runs as each product page is requested
+async function openListing(names, { onFetch = () => {}, storage } = {}) {
     const window = loadExtension({
         url: 'https://silpo.ua/category/test-1',
         html: silpoListingPage(names),
+        storage,
         fetch: async (url) => {
             const name = url.split('/product/')[1];
+            await onFetch(name, window);
             return { text: async () => silpoProductPage(PRODUCTS[name]) };
         },
     });
@@ -42,6 +45,9 @@ async function openListing(names) {
         async scan() {
             $('silpo-filter-btn').click();
             await waitFor(() => $('silpo-filter-status').textContent.startsWith('✅'), { timeout: 5000 });
+        },
+        status() {
+            return $('silpo-filter-status').textContent;
         },
         setInput(id, value) {
             $(id).value = String(value);
@@ -106,7 +112,8 @@ test('a Scan colours, hides and counts by the applied Criteria', async () => {
     assert.deepEqual(page.card('even'), { hidden: false, colour: 'green', badgeColour: 'green' });
     assert.deepEqual(page.card('fatty'), { hidden: true, colour: 'red', badgeColour: 'red' });
     assert.deepEqual(page.card('unknown'), { hidden: false, colour: 'yellow', badgeColour: 'yellow' });
-    assert.equal(page.window.document.getElementById('silpo-filter-status').textContent, '✅ Готово! Показано: 2, приховано: 1');
+    // the product without data is shown, so it counts as shown
+    assert.equal(page.status(), '✅ Готово! Показано: 3, приховано: 1');
     page.window.close();
 });
 
@@ -153,4 +160,78 @@ test('a card the site re-renders during the Scan gets the Nutrition of its new p
     const badge = window.document.querySelector('[data-name="fatty"] .silpo-nutrition-info').textContent;
     assert.match(badge, /Б: 10г/); // "even", not "fatty" (Б: 2г)
     window.close();
+});
+
+test('without hiding, the status counts matches, misses and products without data', async () => {
+    const page = await openListing(['lean', 'fatty', 'unknown']);
+    await page.scan();
+    assert.equal(page.status(), '✅ Готово! Підходить: 1, не підходить: 1, без даних: 1');
+    page.window.close();
+});
+
+test('the status counts each card as it ends up after a checkbox toggled mid-Scan', async () => {
+    const page = await openListing(['even', 'lean'], {
+        onFetch(name) {
+            if (name === 'lean') page.setCheckbox('silpo-only-protein-more-than-fat', false);
+        },
+    });
+    page.setCheckbox('silpo-only-protein-more-than-fat', true);
+    await page.scan();
+    assert.deepEqual(page.card('even'), { hidden: false, colour: 'green', badgeColour: 'green' });
+    assert.equal(page.status(), '✅ Готово! Підходить: 2, не підходить: 0');
+    page.window.close();
+});
+
+test('a new Apply re-colours cards from the earlier Scan before reaching them', async () => {
+    let hang = false;
+    // "unknown" has no data so it is never cached: the second Scan fetches it first and hangs there
+    const page = await openListing(['unknown', 'fatty'], {
+        onFetch: () => hang && new Promise(() => {}),
+    });
+    await page.scan();
+    assert.equal(page.card('fatty').colour, 'red');
+
+    hang = true;
+    page.setInput('silpo-protein-val', 1);
+    page.setInput('silpo-fat-val', 20);
+    page.window.document.getElementById('silpo-filter-btn').click();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.match(page.status(), /Перевірка 1\/2/);
+    assert.equal(page.card('fatty').colour, 'green');
+    page.window.close();
+});
+
+const CACHE_KEY = 'calories_extention_nutrition_cache_v8';
+
+test('products read from the cache are not delayed', async () => {
+    const names = ['lean', 'fatty', 'even', 'lean', 'fatty', 'even'];
+    const cache = { timestamp: Date.now() };
+    const storage = {
+        [CACHE_KEY]: JSON.stringify(Object.fromEntries(['lean', 'fatty', 'even'].map(name =>
+            [`https://silpo.ua/product/${name}`, { ...PRODUCTS[name], ...cache }]))),
+    };
+    let fetches = 0;
+    const page = await openListing(names, { onFetch: () => fetches++, storage });
+    const start = Date.now();
+    await page.scan();
+    assert.equal(fetches, 0);
+    assert.ok(Date.now() - start < 300, `took ${Date.now() - start}ms`);
+    page.window.close();
+});
+
+test('requests are spaced out, even for products without data', async () => {
+    const times = [];
+    const page = await openListing(['unknown', 'unknown', 'unknown'], { onFetch: () => times.push(Date.now()) });
+    await page.scan();
+    assert.equal(times.length, 3);
+    for (let i = 1; i < times.length; i++) assert.ok(times[i] - times[i - 1] >= 90, `gap ${times[i] - times[i - 1]}ms`);
+    page.window.close();
+});
+
+test('the old v7 cache, where 0 calories meant unknown, is dropped', async () => {
+    const page = await openListing(['lean'], {
+        storage: { calories_extention_nutrition_cache_v7: '{}' },
+    });
+    assert.equal(page.window.localStorage.getItem('calories_extention_nutrition_cache_v7'), null);
+    page.window.close();
 });

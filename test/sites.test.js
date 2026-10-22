@@ -59,6 +59,48 @@ for (const [site, url, fixture, count] of listings) {
     });
 }
 
+// The saved dairy listing with its <article> cards turned into <section>s, so the fallback selectors are used
+function silpoListingWithout(...rewrites) {
+    let html = loadFixture('silpo/listing-dairy.html.gz');
+    for (const [from, to] of rewrites) html = html.replaceAll(from, to);
+    return new JSDOM(html, { url: 'https://silpo.ua/category/molochni-produkty-ta-iaitsia-234' }).window.document;
+}
+
+for (const [fallback, rewrites] of [
+    ['div[class*="product-card"]', [['<article', '<section'], ['</article>', '</section>']]],
+    ['a[href*="/product/"]', [['<article', '<section'], ['</article>', '</section>'], ['product-card', 'pc']]],
+]) {
+    test(`silpo findProducts: one card per product when falling back to ${fallback}`, () => {
+        const products = silpo.findProducts(silpoListingWithout(...rewrites));
+        assert.equal(products.length, 47);
+        assert.equal(new Set(products.map(p => p.url)).size, 47);
+        for (const { card } of products) assert.equal(card.tagName, 'SECTION', 'the whole card, not a piece of it');
+    });
+}
+
+test('silpo findProducts keeps two cards for a product shown twice', () => {
+    const doc = new JSDOM(`<div class="promo"><article class="product-card"><a href="/product/kefir-1">Кефір</a></article></div>
+        <div class="grid"><article class="product-card"><a href="/product/kefir-1">Кефір</a></article>
+        <article class="product-card"><a href="/product/milk-2">Молоко</a></article></div>`, { url: 'https://silpo.ua/category/x' }).window.document;
+    assert.deepEqual(silpo.findProducts(doc).map(p => p.card.tagName), ['ARTICLE', 'ARTICLE', 'ARTICLE']);
+});
+
+test('silpo parseNutrition only reads calories after their label', () => {
+    // The butter page with its calories removed; a script on the page has "24 * 1000 // in seconds"
+    const html = loadFixture('silpo/product-butter.html.gz').replaceAll('744/3125', '');
+    const doc = new JSDOM(html).window.document;
+    assert.deepEqual(silpo.parseNutrition(doc), { protein: 0.6, fat: 82, carbs: 0.7, calories: null });
+});
+
+test('foodboom parseNutrition keeps a real 0 kcal and gives null when calories are missing', () => {
+    const row = (label, value) => `<div class="row"><span class="description">${label}</span><span class="value">${value}</span></div>`;
+    const table = (rows) => new JSDOM(`<div class="product-characteristics__item">${rows.join('')}</div>`).window.document;
+    const macros = [row('Білки, г', '0'), row('Жири, г', '0'), row('Вуглеводи, г', '0')];
+    assert.deepEqual(foodboom.parseNutrition(table([...macros, row('Енергетична цінність, ккал', '0')])),
+        { protein: 0, fat: 0, carbs: 0, calories: 0 });
+    assert.deepEqual(foodboom.parseNutrition(table(macros)), { protein: 0, fat: 0, carbs: 0, calories: null });
+});
+
 test('silpo findProducts skips cards whose link is not a product', () => {
     const doc = new JSDOM(`<article class="product-card"><a href="/product/kefir-1">Кефір</a></article>
         <article class="product-card"><a href="/category/promo">Акція</a></article>`, { url: 'https://silpo.ua/category/x' }).window.document;

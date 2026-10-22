@@ -22,10 +22,12 @@ function parseFixture(name) {
 
 // Loads the content scripts, in manifest order, into a page at `url` whose DOM is `html`.
 // Store scripts in the page never run; only the extension's scripts do.
-function loadExtension({ url, html, fetch }) {
+// `storage` is put in localStorage first, as if saved by an earlier visit.
+function loadExtension({ url, html, fetch, storage = {} }) {
     const dom = new JSDOM(html, { url, runScripts: 'outside-only', virtualConsole: quietConsole() });
     const { window } = dom;
     window.fetch = fetch;
+    for (const [key, value] of Object.entries(storage)) window.localStorage.setItem(key, value);
 
     const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
     for (const file of manifest.content_scripts[0].js) {
