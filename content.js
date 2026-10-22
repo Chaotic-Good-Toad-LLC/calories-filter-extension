@@ -21,7 +21,7 @@
         themeKey: 'calories_extention_theme'
     };
 
-    const { compareValue } = BZVK.match;
+    const { evaluate } = BZVK.match;
 
     // === SITE DETECTION ===
     function detectSite() {
@@ -118,8 +118,111 @@
         }
     }
 
+    // === CRITERIA ===
+    // Numbers and operators from the last "Застосувати фільтр"; checkbox flags are always read live
+    let appliedCriteria = null;
+
+    function readCheckboxFlags() {
+        return {
+            hideWithoutNutrition: !!document.getElementById('silpo-hide-without-nutrition')?.checked,
+            hideNonMatching: !!document.getElementById('silpo-hide-non-matching')?.checked,
+            onlyProteinMoreThanFat: !!document.getElementById('silpo-only-protein-more-than-fat')?.checked
+        };
+    }
+
+    function currentCriteria() {
+        return { ...appliedCriteria, ...readCheckboxFlags() };
+    }
+
+    // === CARD MARKING ===
+    function createNutritionLabel(prefix, value, suffix) {
+        const div = document.createElement('div');
+        div.className = 'silpo-nutrition-label';
+        const strong = document.createElement('strong');
+        strong.textContent = prefix;
+        div.appendChild(strong);
+        div.appendChild(document.createTextNode(` ${value}${suffix}`));
+        return div;
+    }
+
+    function storeCardNutrition(card, nutrition) {
+        if (nutrition) {
+            card.dataset.protein = nutrition.protein;
+            card.dataset.fat = nutrition.fat;
+            card.dataset.carbs = nutrition.carbs;
+            card.dataset.calories = nutrition.calories;
+        } else {
+            delete card.dataset.protein;
+            delete card.dataset.fat;
+            delete card.dataset.carbs;
+            delete card.dataset.calories;
+        }
+    }
+
+    function readCardNutrition(card) {
+        if (card.dataset.protein === undefined) return null;
+        return {
+            protein: parseFloat(card.dataset.protein),
+            fat: parseFloat(card.dataset.fat),
+            carbs: parseFloat(card.dataset.carbs),
+            calories: parseFloat(card.dataset.calories)
+        };
+    }
+
+    // Draws a card's badge, colour and visibility from its Nutrition and the result of evaluate()
+    function markCard(card, nutrition, result) {
+        card.querySelector('.silpo-nutrition-info')?.remove();
+        card.classList.remove('silpo-card-green', 'silpo-card-red', 'silpo-card-yellow');
+        card.classList.toggle('silpo-hidden', result.hidden);
+
+        const infoDiv = document.createElement('div');
+
+        if (result.verdict === 'noData') {
+            card.classList.add('silpo-card-yellow');
+            infoDiv.className = 'silpo-nutrition-info silpo-badge-yellow';
+            infoDiv.textContent = '⚠️ Немає даних про БЖВ';
+            card.appendChild(infoDiv);
+            return;
+        }
+
+        const { protein, fat, carbs, calories } = nutrition;
+        const isMatch = result.verdict === 'match';
+        const colour = isMatch ? 'green' : 'red';
+        card.classList.add(`silpo-card-${colour}`);
+        infoDiv.className = `silpo-nutrition-info silpo-badge-${colour}`;
+
+        infoDiv.appendChild(createNutritionLabel('Б:', protein, 'г'));
+        infoDiv.appendChild(createNutritionLabel('Ж:', fat, 'г'));
+        infoDiv.appendChild(createNutritionLabel('В:', carbs, 'г'));
+
+        if (calories > 0) {
+            const calDiv = document.createElement('div');
+            calDiv.className = 'silpo-nutrition-label';
+            if (isMatch) {
+                const calorieEmoji = calories <= 100 ? '🔥' : '👍';
+                calDiv.appendChild(document.createTextNode(calorieEmoji + ' '));
+            }
+            const strong = document.createElement('strong');
+            strong.textContent = calories;
+            calDiv.appendChild(strong);
+            calDiv.appendChild(document.createTextNode(' ккал'));
+            infoDiv.appendChild(calDiv);
+        }
+
+        // Add muscle emoji if protein > fat
+        if (result.proteinMoreThanFat) {
+            const muscleDiv = document.createElement('div');
+            muscleDiv.className = 'silpo-nutrition-label';
+            muscleDiv.textContent = '💪';
+            muscleDiv.title = 'Білків більше ніж жирів';
+            infoDiv.appendChild(muscleDiv);
+        }
+
+        card.appendChild(infoDiv);
+    }
+
     // === PRODUCT FILTERING ===
-    async function filterProducts(proteinOp, proteinVal, fatOp, fatVal, carbsOp, carbsVal, caloriesOp, caloriesVal, hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat, statusEl) {
+    async function filterProducts(statusEl) {
         let productCards = [];
         for (const selector of currentSite.productCardSelectors) {
             productCards = document.querySelectorAll(selector);
@@ -144,16 +247,6 @@
         let matched = 0;
         let hidden = 0;
 
-        function createNutritionLabel(prefix, value, suffix) {
-            const div = document.createElement('div');
-            div.className = 'silpo-nutrition-label';
-            const strong = document.createElement('strong');
-            strong.textContent = prefix;
-            div.appendChild(strong);
-            div.appendChild(document.createTextNode(` ${value}${suffix}`));
-            return div;
-        }
-
         for (const card of validCards) {
             if (filterCancelled) {
                 statusEl.textContent = `⛔ Зупинено. Перевірено: ${processed}, підходить: ${matched}, приховано: ${hidden}`;
@@ -173,158 +266,41 @@
             // Remove highlight
             card.classList.remove('silpo-checking');
 
-            // Remove previous nutrition info if present
-            const existingInfo = card.querySelector('.silpo-nutrition-info');
-            if (existingInfo) {
-                existingInfo.remove();
-            }
+            // Store nutrition data on card so checkbox changes can re-evaluate it
+            storeCardNutrition(card, nutrition);
 
-            if (!nutrition) {
-                if (hideWithoutNutrition) {
-                    hidden++;
-                    card.classList.add('silpo-hidden');
-                } else {
-                    card.classList.add('silpo-card-yellow');
-                    const infoDiv = document.createElement('div');
-                    infoDiv.className = 'silpo-nutrition-info silpo-badge-yellow';
-                    infoDiv.textContent = '⚠️ Немає даних про БЖВ';
-                    card.appendChild(infoDiv);
-                }
-                continue;
-            }
+            const result = evaluate(nutrition, currentCriteria());
+            markCard(card, nutrition, result);
 
-            const { protein, fat, carbs, calories } = nutrition;
-
-            // Store nutrition data on card for dynamic filtering
-            card.dataset.protein = protein;
-            card.dataset.fat = fat;
-            card.dataset.carbs = carbs;
-            card.dataset.calories = calories;
-
-            // Check all filter conditions
-            const proteinMatch = compareValue(protein, proteinOp, proteinVal);
-            const fatMatch = compareValue(fat, fatOp, fatVal);
-            const carbsMatch = compareValue(carbs, carbsOp, carbsVal);
-            const caloriesMatch = calories > 0 ? compareValue(calories, caloriesOp, caloriesVal) : true;
-            const proteinMoreThanFat = protein > fat;
-            const muscleMatch = onlyProteinMoreThanFat ? proteinMoreThanFat : true;
-            const isMatch = proteinMatch && fatMatch && carbsMatch && caloriesMatch && muscleMatch;
-
-            // Add nutrition info badge below the product
-            const infoDiv = document.createElement('div');
-            infoDiv.className = 'silpo-nutrition-info';
-
-            infoDiv.appendChild(createNutritionLabel('Б:', protein, 'г'));
-            infoDiv.appendChild(createNutritionLabel('Ж:', fat, 'г'));
-            infoDiv.appendChild(createNutritionLabel('В:', carbs, 'г'));
-
-            if (calories > 0) {
-                const calDiv = document.createElement('div');
-                calDiv.className = 'silpo-nutrition-label';
-                if (isMatch) {
-                    const calorieEmoji = calories <= 100 ? '🔥' : '👍';
-                    calDiv.appendChild(document.createTextNode(calorieEmoji + ' '));
-                }
-                const strong = document.createElement('strong');
-                strong.textContent = calories;
-                calDiv.appendChild(strong);
-                calDiv.appendChild(document.createTextNode(' ккал'));
-                infoDiv.appendChild(calDiv);
-            }
-
-            // Add muscle emoji if protein > fat
-            if (proteinMoreThanFat) {
-                const muscleDiv = document.createElement('div');
-                muscleDiv.className = 'silpo-nutrition-label';
-                muscleDiv.textContent = '💪';
-                muscleDiv.title = 'Білків більше ніж жирів';
-                infoDiv.appendChild(muscleDiv);
-            }
-
-            // Hide if muscle filter is on and protein <= fat
-            const hideByMuscle = onlyProteinMoreThanFat && !proteinMoreThanFat;
-
-            if (isMatch) {
+            if (result.verdict === 'match') {
                 matched++;
-                card.classList.remove('silpo-hidden');
-                card.classList.add('silpo-card-green');
-                infoDiv.classList.add('silpo-badge-green');
-            } else {
+            } else if (result.verdict === 'miss' || result.hidden) {
                 hidden++;
-                card.classList.add('silpo-card-red');
-                infoDiv.classList.add('silpo-badge-red');
-                if (hideNonMatching || hideByMuscle) {
-                    card.classList.add('silpo-hidden');
-                } else {
-                    card.classList.remove('silpo-hidden');
-                }
             }
-            // Always append the badge
-            card.appendChild(infoDiv);
+
+            if (!nutrition) continue;
 
             // Small delay to avoid rate limiting
             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        statusEl.textContent = hideNonMatching
+        statusEl.textContent = readCheckboxFlags().hideNonMatching
             ? `✅ Готово! Показано: ${matched}, приховано: ${hidden}`
             : `✅ Готово! Підходить: ${matched}, не підходить: ${hidden}`;
     }
 
     // === DYNAMIC VISIBILITY ===
     function applyVisibility() {
-        const hideWithoutNutrition = document.getElementById('silpo-hide-without-nutrition')?.checked;
-        const hideNonMatching = document.getElementById('silpo-hide-non-matching')?.checked;
-        const onlyProteinMoreThanFat = document.getElementById('silpo-only-protein-more-than-fat')?.checked;
+        const { hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat } = readCheckboxFlags();
 
-        const proteinOp = document.getElementById('silpo-protein-op')?.value || '>=';
-        const proteinVal = parseFloat(document.getElementById('silpo-protein-val')?.value) || 0;
-        const fatOp = document.getElementById('silpo-fat-op')?.value || '<=';
-        const fatVal = parseFloat(document.getElementById('silpo-fat-val')?.value) || 0;
-        const carbsOp = document.getElementById('silpo-carbs-op')?.value || '<=';
-        const carbsVal = parseFloat(document.getElementById('silpo-carbs-val')?.value) || 0;
-        const caloriesOp = document.getElementById('silpo-calories-op')?.value || '<=';
-        const caloriesVal = parseFloat(document.getElementById('silpo-calories-val')?.value) || 0;
-
-        // Find all cards with nutrition data
-        const cardsWithData = document.querySelectorAll('[data-protein]');
-        // Find cards without nutrition (yellow badge)
-        const cardsWithoutData = document.querySelectorAll('.silpo-card-yellow');
-
-        // Handle cards without nutrition data
-        cardsWithoutData.forEach(card => {
-            if (hideWithoutNutrition) {
-                card.classList.add('silpo-hidden');
-            } else {
-                card.classList.remove('silpo-hidden');
-            }
-        });
-
-        // Handle cards with nutrition data
-        cardsWithData.forEach(card => {
-            const protein = parseFloat(card.dataset.protein);
-            const fat = parseFloat(card.dataset.fat);
-            const carbs = parseFloat(card.dataset.carbs);
-            const calories = parseFloat(card.dataset.calories);
-
-            const proteinMatch = compareValue(protein, proteinOp, proteinVal);
-            const fatMatch = compareValue(fat, fatOp, fatVal);
-            const carbsMatch = compareValue(carbs, carbsOp, carbsVal);
-            const caloriesMatch = calories > 0 ? compareValue(calories, caloriesOp, caloriesVal) : true;
-            const proteinMoreThanFat = protein > fat;
-            const muscleMatch = onlyProteinMoreThanFat ? proteinMoreThanFat : true;
-            const isMatch = proteinMatch && fatMatch && carbsMatch && caloriesMatch && muscleMatch;
-
-            const hideByMuscle = onlyProteinMoreThanFat && !proteinMoreThanFat;
-
-            if (isMatch) {
-                card.classList.remove('silpo-hidden');
-            } else if (hideNonMatching || hideByMuscle) {
-                card.classList.add('silpo-hidden');
-            } else {
-                card.classList.remove('silpo-hidden');
-            }
-        });
+        // Re-evaluate every scanned card against the applied Criteria and the new checkbox flags
+        if (appliedCriteria) {
+            const criteria = currentCriteria();
+            document.querySelectorAll('[data-protein], .silpo-card-yellow').forEach(card => {
+                const nutrition = readCardNutrition(card);
+                markCard(card, nutrition, evaluate(nutrition, criteria));
+            });
+        }
 
         // Save checkbox states
         try {
@@ -545,6 +521,7 @@
                 caloriesOp,
                 caloriesVal
             };
+            appliedCriteria = filterValues;
             try {
                 localStorage.setItem(CONFIG.filterValuesKey, JSON.stringify(filterValues));
                 localStorage.setItem(CONFIG.hideWithoutNutritionKey, hideWithoutNutrition);
@@ -558,7 +535,7 @@
             resetBtn.disabled = true;
             stopBtn.style.display = '';
 
-            await filterProducts(proteinOp, proteinVal, fatOp, fatVal, carbsOp, carbsVal, caloriesOp, caloriesVal, hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat, statusEl);
+            await filterProducts(statusEl);
 
             filterBtn.disabled = false;
             resetBtn.disabled = false;
