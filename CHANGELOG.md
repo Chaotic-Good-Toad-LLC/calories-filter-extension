@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.15
+- Split content.js into content scripts: src/match.js, one Site adapter per store in src/sites/, and content.js
+- Add tests (node --test + jsdom) against saved silpo and foodboom pages
+- Add scripts/package.sh to build the store zips from an explicit allow-list
+
 ## 0.14
 - Add foodboom.ua support with site-specific card selectors and nutrition parser
 - Introduce SITE_CONFIG + detectSite() to keep silpo and foodboom logic separate

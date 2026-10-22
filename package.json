@@ -1,0 +1,11 @@
+{
+  "name": "bzvk-filter",
+  "private": true,
+  "description": "Dev-only tooling for the БЖВК Filter extension. Nothing here ships.",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.3"
+  }
+}
