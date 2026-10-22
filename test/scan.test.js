@@ -133,3 +133,24 @@ test('"Очистити результати" removes every badge, colour and hi
     }
     page.window.close();
 });
+
+test('a card the site re-renders during the Scan gets the Nutrition of its new product', async () => {
+    const window = loadExtension({
+        url: 'https://silpo.ua/category/test-1',
+        html: silpoListingPage(['lean', 'fatty']),
+        fetch: async (url) => {
+            const name = url.split('/product/')[1];
+            // While the first product loads, the site reuses the second card for another product
+            if (name === 'lean') window.document.querySelector('[data-name="fatty"] a').href = '/product/even';
+            return { text: async () => silpoProductPage(PRODUCTS[name]) };
+        },
+    });
+    const $ = (id) => window.document.getElementById(id);
+    await waitFor(() => $('silpo-filter-btn'));
+    $('silpo-filter-btn').click();
+    await waitFor(() => $('silpo-filter-status').textContent.startsWith('✅'), { timeout: 5000 });
+
+    const badge = window.document.querySelector('[data-name="fatty"] .silpo-nutrition-info').textContent;
+    assert.match(badge, /Б: 10г/); // "even", not "fatty" (Б: 2г)
+    window.close();
+});

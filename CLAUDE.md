@@ -22,7 +22,7 @@ This is a plain JS/CSS content script extension with no build step and no runtim
 - **Nutrition parsing**: Fetches individual product pages via `fetch()` and hands the parsed document to the current Site adapter. Silpo's parser reads the "Харчова цінність" section with regexes and handles kcal/kJ swap detection.
 - **Caching**: `NutritionCache` class stores parsed nutrition data in `localStorage` with 7-day expiry. Cache key: `calories_extention_nutrition_cache_v7`.
 - **Filter panel**: Fixed-position UI injected into the page. Filter values, checkbox states, panel minimized state, and theme preference are all persisted in `localStorage`.
-- **Product detection**: Each Site adapter's `findProducts` returns only cards with a valid product link. Silpo tries several card selectors in order (`article[class*="product"]`, `div[class*="product-card"]`, etc.) since its layout may vary.
+- **Product detection**: Each Site adapter's `findProducts` returns only cards with a valid product link. Each `url` is a getter that re-reads the card's link, so the Scan gets the current product even if the site re-renders the card mid-Scan. Silpo tries several card selectors in order (`article[class*="product"]`, `div[class*="product-card"]`, etc.) since its layout may vary.
 
 ## Development
 

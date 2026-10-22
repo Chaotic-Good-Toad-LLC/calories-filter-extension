@@ -58,10 +58,16 @@
 
     const PRODUCT_LINK = /^https:\/\/foodboom\.ua\/[^/]+\/$/;
 
+    function productUrl(card) {
+        const url = card.querySelector('a.card-title')?.href;
+        return url && PRODUCT_LINK.test(url) ? url : null;
+    }
+
+    // url is read each time it is used, so a card the site re-renders mid-Scan gives its current link
     function findProducts(doc) {
         return Array.from(doc.querySelectorAll('.card.card--float'))
-            .map(card => ({ card, url: card.querySelector('a.card-title')?.href }))
-            .filter(({ url }) => url && PRODUCT_LINK.test(url));
+            .filter(card => productUrl(card))
+            .map(card => ({ card, get url() { return productUrl(card); } }));
     }
 
     BZVK.sites.foodboom = {

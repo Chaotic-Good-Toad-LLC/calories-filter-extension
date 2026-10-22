@@ -12,15 +12,21 @@
     ];
     const PRODUCT_LINK = /\/product\//;
 
+    function productUrl(card) {
+        const url = card.href || card.querySelector('a')?.href;
+        return url && PRODUCT_LINK.test(url) ? url : null;
+    }
+
     function findProducts(doc) {
         let cards = [];
         for (const selector of PRODUCT_CARD_SELECTORS) {
             cards = doc.querySelectorAll(selector);
             if (cards.length > 0) break;
         }
+        // url is read each time it is used, so a card the site re-renders mid-Scan gives its current link
         return Array.from(cards)
-            .map(card => ({ card, url: card.href || card.querySelector('a')?.href }))
-            .filter(({ url }) => url && PRODUCT_LINK.test(url));
+            .filter(card => productUrl(card))
+            .map(card => ({ card, get url() { return productUrl(card); } }));
     }
 
     // Calories: "NUMBER/NUMBER" (kcal/kJ) or just "NUMBER/" (no kJ)

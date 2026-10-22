@@ -253,6 +253,7 @@
         let matched = 0;
         let hidden = 0;
 
+        // url is read here, just before the fetch, since the site may have re-rendered the card
         for (const { card, url } of products) {
             if (filterCancelled) {
                 statusEl.textContent = `⛔ Зупинено. Перевірено: ${processed}, підходить: ${matched}, приховано: ${hidden}`;
@@ -260,6 +261,7 @@
             }
 
             processed++;
+            if (!url) continue;
             statusEl.textContent = `⏳ Перевірка ${processed}/${products.length}... Знайдено: ${matched}`;
 
             // Highlight the product being checked
