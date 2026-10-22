@@ -109,3 +109,27 @@ test('a Scan colours, hides and counts by the applied Criteria', async () => {
     assert.equal(page.window.document.getElementById('silpo-filter-status').textContent, '✅ Готово! Показано: 2, приховано: 1');
     page.window.close();
 });
+
+test('an empty number field sets no limit, in the Scan and when toggling checkboxes', async () => {
+    const page = await openListing(['lean', 'fatty']);
+    page.setInput('silpo-fat-val', '');
+    await page.scan();
+    assert.deepEqual(page.card('fatty'), { hidden: false, colour: 'red', badgeColour: 'red' }); // still fails protein
+    assert.deepEqual(page.card('lean'), { hidden: false, colour: 'green', badgeColour: 'green' });
+
+    page.setCheckbox('silpo-hide-non-matching', true);
+    assert.deepEqual(page.card('lean'), { hidden: false, colour: 'green', badgeColour: 'green' });
+    assert.equal(JSON.parse(page.window.localStorage.getItem('calories_extention_filter_values')).fatVal, null);
+    page.window.close();
+});
+
+test('"Очистити результати" removes every badge, colour and hiding', async () => {
+    const page = await openListing(['lean', 'fatty', 'unknown']);
+    page.setCheckbox('silpo-hide-non-matching', true);
+    await page.scan();
+    page.window.document.getElementById('silpo-reset-btn').click();
+    for (const name of ['lean', 'fatty', 'unknown']) {
+        assert.deepEqual(page.card(name), { hidden: false, colour: null, badgeColour: null }, name);
+    }
+    page.window.close();
+});

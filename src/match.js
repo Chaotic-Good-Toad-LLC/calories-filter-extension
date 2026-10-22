@@ -4,6 +4,8 @@
     const BZVK = root.BZVK = root.BZVK || { sites: {} };
 
     function compareValue(actual, operator, target) {
+        // An empty field sets no limit
+        if (target === null || target === undefined || Number.isNaN(target)) return true;
         switch (operator) {
             case '<': return actual < target;
             case '<=': return actual <= target;

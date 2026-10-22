@@ -134,6 +134,17 @@
         return { ...appliedCriteria, ...readCheckboxFlags() };
     }
 
+    function saveCheckboxFlags() {
+        const { hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat } = readCheckboxFlags();
+        try {
+            localStorage.setItem(CONFIG.hideWithoutNutritionKey, hideWithoutNutrition);
+            localStorage.setItem(CONFIG.hideNonMatchingKey, hideNonMatching);
+            localStorage.setItem(CONFIG.onlyProteinMoreThanFatKey, onlyProteinMoreThanFat);
+        } catch (e) {
+            console.error('Failed to save checkbox states:', e);
+        }
+    }
+
     // === CARD MARKING ===
     function createNutritionLabel(prefix, value, suffix) {
         const div = document.createElement('div');
@@ -169,10 +180,15 @@
         };
     }
 
+    // Removes a card's badge, colour and hiding
+    function unmarkCard(card) {
+        card.querySelector('.silpo-nutrition-info')?.remove();
+        card.classList.remove('silpo-card-green', 'silpo-card-red', 'silpo-card-yellow', 'silpo-hidden');
+    }
+
     // Draws a card's badge, colour and visibility from its Nutrition and the result of evaluate()
     function markCard(card, nutrition, result) {
-        card.querySelector('.silpo-nutrition-info')?.remove();
-        card.classList.remove('silpo-card-green', 'silpo-card-red', 'silpo-card-yellow');
+        unmarkCard(card);
         card.classList.toggle('silpo-hidden', result.hidden);
 
         const infoDiv = document.createElement('div');
@@ -291,8 +307,6 @@
 
     // === DYNAMIC VISIBILITY ===
     function applyVisibility() {
-        const { hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat } = readCheckboxFlags();
-
         // Re-evaluate every scanned card against the applied Criteria and the new checkbox flags
         if (appliedCriteria) {
             const criteria = currentCriteria();
@@ -302,14 +316,7 @@
             });
         }
 
-        // Save checkbox states
-        try {
-            localStorage.setItem(CONFIG.hideWithoutNutritionKey, hideWithoutNutrition);
-            localStorage.setItem(CONFIG.hideNonMatchingKey, hideNonMatching);
-            localStorage.setItem(CONFIG.onlyProteinMoreThanFatKey, onlyProteinMoreThanFat);
-        } catch (e) {
-            console.error('Failed to save checkbox states:', e);
-        }
+        saveCheckboxFlags();
     }
 
     // === UI PANEL ===
@@ -331,15 +338,16 @@
             console.error('Failed to load saved filter values:', e);
         }
 
-        // Use saved values or defaults from CONFIG
+        // Use saved values or defaults from CONFIG; a saved null is a field left empty
+        const savedNumber = (key, fallback) => savedValues && key in savedValues ? savedValues[key] ?? '' : fallback;
         const proteinOp = savedValues?.proteinOp || CONFIG.proteinOperator;
-        const proteinVal = savedValues?.proteinVal ?? CONFIG.minProtein;
+        const proteinVal = savedNumber('proteinVal', CONFIG.minProtein);
         const fatOp = savedValues?.fatOp || CONFIG.fatOperator;
-        const fatVal = savedValues?.fatVal ?? CONFIG.maxFat;
+        const fatVal = savedNumber('fatVal', CONFIG.maxFat);
         const carbsOp = savedValues?.carbsOp || CONFIG.carbsOperator;
-        const carbsVal = savedValues?.carbsVal ?? CONFIG.maxCarbs;
+        const carbsVal = savedNumber('carbsVal', CONFIG.maxCarbs);
         const caloriesOp = savedValues?.caloriesOp || CONFIG.caloriesOperator;
-        const caloriesVal = savedValues?.caloriesVal ?? CONFIG.maxCalories;
+        const caloriesVal = savedNumber('caloriesVal', CONFIG.maxCalories);
 
         // Theme: load saved state
         const savedTheme = localStorage.getItem(CONFIG.themeKey); // 'light' or null (dark)
@@ -497,18 +505,21 @@
             localStorage.setItem(CONFIG.themeKey, nowLight ? 'light' : 'dark');
         });
 
+        // An empty or invalid field is null: no limit
+        function readNumber(id) {
+            const value = parseFloat(document.getElementById(id).value);
+            return Number.isFinite(value) ? value : null;
+        }
+
         filterBtn.addEventListener('click', async () => {
             const proteinOp = document.getElementById('silpo-protein-op').value;
-            const proteinVal = parseFloat(document.getElementById('silpo-protein-val').value);
+            const proteinVal = readNumber('silpo-protein-val');
             const fatOp = document.getElementById('silpo-fat-op').value;
-            const fatVal = parseFloat(document.getElementById('silpo-fat-val').value);
+            const fatVal = readNumber('silpo-fat-val');
             const carbsOp = document.getElementById('silpo-carbs-op').value;
-            const carbsVal = parseFloat(document.getElementById('silpo-carbs-val').value);
+            const carbsVal = readNumber('silpo-carbs-val');
             const caloriesOp = document.getElementById('silpo-calories-op').value;
-            const caloriesVal = parseFloat(document.getElementById('silpo-calories-val').value);
-            const hideWithoutNutrition = hideCheckbox.checked;
-            const hideNonMatching = hideNonMatchingCheckbox.checked;
-            const onlyProteinMoreThanFat = onlyProteinMoreThanFatCheckbox.checked;
+            const caloriesVal = readNumber('silpo-calories-val');
 
             // Save all filter values
             const filterValues = {
@@ -524,12 +535,10 @@
             appliedCriteria = filterValues;
             try {
                 localStorage.setItem(CONFIG.filterValuesKey, JSON.stringify(filterValues));
-                localStorage.setItem(CONFIG.hideWithoutNutritionKey, hideWithoutNutrition);
-                localStorage.setItem(CONFIG.hideNonMatchingKey, hideNonMatching);
-                localStorage.setItem(CONFIG.onlyProteinMoreThanFatKey, onlyProteinMoreThanFat);
             } catch (e) {
                 console.error('Failed to save filter values:', e);
             }
+            saveCheckboxFlags();
 
             filterBtn.disabled = true;
             resetBtn.disabled = true;
@@ -547,20 +556,9 @@
         });
 
         resetBtn.addEventListener('click', () => {
-            document.querySelectorAll('.silpo-hidden').forEach(el => {
-                el.classList.remove('silpo-hidden');
-            });
-            document.querySelectorAll('.silpo-nutrition-info').forEach(el => {
-                el.remove();
-            });
-            document.querySelectorAll('.silpo-card-green, .silpo-card-red, .silpo-card-yellow').forEach(el => {
-                el.classList.remove('silpo-card-green', 'silpo-card-red', 'silpo-card-yellow');
-            });
-            document.querySelectorAll('[data-protein]').forEach(el => {
-                delete el.dataset.protein;
-                delete el.dataset.fat;
-                delete el.dataset.carbs;
-                delete el.dataset.calories;
+            document.querySelectorAll('[data-protein], .silpo-card-yellow, .silpo-hidden').forEach(card => {
+                unmarkCard(card);
+                storeCardNutrition(card, null);
             });
             statusEl.textContent = '♻️ Результати очищено';
         });
