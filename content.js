@@ -176,7 +176,8 @@
         }
 
         const { protein, fat, carbs, calories } = nutrition;
-        const colour = result.verdict === 'match' ? 'green' : 'red';
+        const isMatch = result.verdict === 'match';
+        const colour = isMatch ? 'green' : 'red';
         card.classList.add(`silpo-card-${colour}`);
         infoDiv.className = `silpo-nutrition-info silpo-badge-${colour}`;
 
@@ -187,6 +188,10 @@
         if (calories !== null) {
             const calDiv = document.createElement('div');
             calDiv.className = 'silpo-nutrition-label';
+            if (isMatch) {
+                const calorieEmoji = calories <= 100 ? '🔥' : '👍';
+                calDiv.appendChild(document.createTextNode(calorieEmoji + ' '));
+            }
             const strong = document.createElement('strong');
             strong.textContent = calories;
             calDiv.appendChild(strong);
