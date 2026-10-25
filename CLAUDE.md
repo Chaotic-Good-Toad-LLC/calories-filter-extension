@@ -30,6 +30,7 @@ No build tools. Load as unpacked extension in Chrome via `chrome://extensions` w
 
 - `npm install` once, then `npm test` — runs `node --test` over `test/**/*.test.js`. `package.json` and jsdom are dev-only and never ship.
 - Tests run against saved store pages in `test/fixtures/<site>/*.html.gz` (full pages, gzipped; product pages are the raw `fetch()` response, listing pages are the live DOM). Silpo is behind Cloudflare, so capture its pages from a real browser session, not curl.
+- CI (`.github/workflows/ci.yml`, GitHub Actions) runs `npm test` on Node 22 and 24 and checks that the store zips hold every file `manifest.json` loads, on every PR and push to main.
 - `scripts/package.sh` — builds `bjvk-filter-chrome.zip` and `calories-filter-firefox.zip` from an explicit file allow-list.
 
 ## Conventions

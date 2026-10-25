@@ -1,0 +1,49 @@
+# Runs the tests and builds the store zips on every PR and every push to main.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A new push to the same branch cancels the run still going for the previous one
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - run: scripts/package.sh
+      # Every file the manifest loads must be in the zip, or the shipped extension breaks
+      - name: Check the zips hold every manifest file
+        run: |
+          for zip in bjvk-filter-chrome.zip calories-filter-firefox.zip; do
+            missing=$(jq -r '.content_scripts[].js[], .content_scripts[].css[]?, .icons[]?' manifest.json \
+              | sort -u | while read -r f; do unzip -l "$zip" "$f" > /dev/null || echo "$f"; done)
+            if [ -n "$missing" ]; then
+              echo "::error::$zip is missing: $missing"
+              exit 1
+            fi
+          done
