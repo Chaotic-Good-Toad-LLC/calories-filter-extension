@@ -207,7 +207,7 @@ test('a new Apply re-colours cards from the earlier Scan before reaching them', 
     page.window.close();
 });
 
-const CACHE_KEY = 'calories_extention_nutrition_cache_v8';
+const CACHE_KEY = 'calories_extention_nutrition_cache_v9';
 
 test('products read from the cache are not delayed', async () => {
     const names = ['lean', 'fatty', 'even', 'lean', 'fatty', 'even'];
@@ -234,11 +234,12 @@ test('requests are spaced out, even for products without data', async () => {
     page.window.close();
 });
 
-test('the old v7 cache, where 0 calories meant unknown, is dropped', async () => {
+test('old caches are dropped: v7 (0 calories meant unknown) and v8 (partial tables saved as no data)', async () => {
     const page = await openListing(['lean'], {
-        storage: { calories_extention_nutrition_cache_v7: '{}' },
+        storage: { calories_extention_nutrition_cache_v7: '{}', calories_extention_nutrition_cache_v8: '{}' },
     });
     assert.equal(page.window.localStorage.getItem('calories_extention_nutrition_cache_v7'), null);
+    assert.equal(page.window.localStorage.getItem('calories_extention_nutrition_cache_v8'), null);
     page.window.close();
 });
 
@@ -325,4 +326,17 @@ test('foodboom product pages are loaded in a frame, not with fetch()', async () 
     assert.deepEqual(framed, ['https://foodboom.ua/monster/', 'https://foodboom.ua/sik/']);
     assert.equal($('silpo-filter-status').textContent, '✅ Готово! Підходить: 0, не підходить: 1, без даних: 1');
     window.close();
+});
+
+test('"Очистити результати" is hidden while a Scan runs and comes back after it', async () => {
+    let release;
+    const page = await openListing(['lean'], { onFetch: () => new Promise(resolve => { release = resolve; }) });
+    const resetBtn = page.window.document.getElementById('silpo-reset-btn');
+    page.window.document.getElementById('silpo-filter-btn').click();
+    await waitFor(() => release);
+    assert.equal(resetBtn.style.display, 'none');
+    release();
+    await waitFor(() => page.status().startsWith('✅'));
+    assert.equal(resetBtn.style.display, '');
+    page.window.close();
 });

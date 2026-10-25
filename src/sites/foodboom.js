@@ -49,13 +49,17 @@
         return { protein, fat, carbs, calories };
     }
 
+    // A table that lists only some values gives those, with the rest null
     function parseFoodBoomNutrition(doc) {
-        const { protein, fat, carbs, calories } = parseCharacteristics(doc);
+        const nutrition = parseCharacteristics(doc);
+        const { protein, fat, carbs, calories } = nutrition;
         // Only pages whose table has no macros at all use the description; a partial table
         // is not topped up from it, since the body text can include other products
-        if (protein === null && fat === null && carbs === null) return parseDescription(doc);
-        if (protein === null || fat === null || carbs === null) return null;
-        return { protein, fat, carbs, calories };
+        if (protein === null && fat === null && carbs === null) {
+            const described = parseDescription(doc);
+            if (described) return described;
+        }
+        return Object.values(nutrition).some(value => value !== null) ? nutrition : null;
     }
 
     const PRODUCT_LINK = /^https:\/\/foodboom\.ua\/[^/]+\/$/;

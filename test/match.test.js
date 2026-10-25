@@ -69,10 +69,21 @@ test('evaluate: Verdict and visibility for each combination of flags', () => {
     }
 });
 
-test('evaluate: calories null means unknown and always passes the calories criterion', () => {
+test('evaluate: an unknown value fails a limit on it, and passes when that field is empty', () => {
     const noCalories = { ...lean, calories: null };
-    assert.equal(evaluate(noCalories, { ...DEFAULTS, caloriesOp: '>', caloriesVal: 1000 }).verdict, 'match');
-    assert.equal(evaluate(lean, { ...DEFAULTS, caloriesOp: '>', caloriesVal: 1000 }).verdict, 'miss');
+    assert.equal(evaluate(noCalories, DEFAULTS).verdict, 'miss');
+    assert.equal(evaluate(noCalories, { ...DEFAULTS, caloriesVal: null }).verdict, 'match');
+
+    // Monster Ultra Rosa lists only kcal and carbs
+    const drink = { protein: null, fat: null, carbs: 1.4, calories: 49 };
+    assert.equal(evaluate(drink, DEFAULTS).verdict, 'miss');
+    assert.equal(evaluate(drink, { ...DEFAULTS, proteinVal: null, fatVal: null }).verdict, 'match');
+});
+
+test('evaluate: "protein > fat" is false when either is unknown', () => {
+    const criteria = { ...DEFAULTS, proteinVal: null, fatVal: null, onlyProteinMoreThanFat: true };
+    assert.deepEqual(evaluate({ protein: 20, fat: null, carbs: 1, calories: 90 }, criteria),
+        { verdict: 'miss', hidden: true, proteinMoreThanFat: false });
 });
 
 test('evaluate: calories 0 is a real value, not unknown', () => {

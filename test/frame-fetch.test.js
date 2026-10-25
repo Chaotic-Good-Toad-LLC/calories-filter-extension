@@ -63,20 +63,20 @@ test('answers with the page as soon as its script adds the nutrition', async () 
     assert.equal(frame.removed, true);
 });
 
-test('a page that never gets the nutrition is answered as it is, `settle` ms after it loaded', async () => {
+test('a page still without the nutrition `settle` ms after it loaded fails, like a network error', async () => {
     const document = fakeDocument();
-    let answered = false;
-    const loading = createFrameFetch({ document, isReady, options })('u').then(r => { answered = true; return r; });
+    let settled = false;
+    const loading = createFrameFetch({ document, isReady, options })('u');
+    loading.catch(() => {}).finally(() => { settled = true; });
     const [frame] = document.frames;
     frame.show(BARE);
     await tick(100);
-    assert.equal(answered, false, 'still waiting: the page has not loaded');
+    assert.equal(settled, false, 'still waiting: the page has not loaded');
 
     frame.load();
     await tick(20);
-    assert.equal(answered, false, 'still waiting for the page script');
-    const response = await loading;
-    assert.doesNotMatch(await response.text(), /Білки/);
+    assert.equal(settled, false, 'still waiting for the page script');
+    await assert.rejects(loading, /did not show its nutrition/);
     assert.equal(frame.removed, true);
 });
 

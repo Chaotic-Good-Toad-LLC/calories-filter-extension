@@ -6,6 +6,8 @@
     function compareValue(actual, operator, target) {
         // An empty field sets no limit
         if (target === null || target === undefined || Number.isNaN(target)) return true;
+        // A value the page doesn't give can't be shown to be within a limit
+        if (actual === null) return false;
         switch (operator) {
             case '<': return actual < target;
             case '<=': return actual <= target;
@@ -18,7 +20,7 @@
     }
 
     // Decides one product's Verdict against the Criteria, and whether its card is hidden.
-    // nutrition: { protein, fat, carbs, calories } or null; calories null means "unknown" and always passes.
+    // nutrition: { protein, fat, carbs, calories } or null; a null value is unknown and fails any limit on it.
     // criteria: { proteinOp, proteinVal, fatOp, fatVal, carbsOp, carbsVal, caloriesOp, caloriesVal,
     //             hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat }
     function evaluate(nutrition, criteria) {
@@ -27,11 +29,11 @@
         }
 
         const { protein, fat, carbs, calories } = nutrition;
-        const proteinMoreThanFat = protein > fat;
+        const proteinMoreThanFat = protein !== null && fat !== null && protein > fat;
         const isMatch = compareValue(protein, criteria.proteinOp, criteria.proteinVal) &&
             compareValue(fat, criteria.fatOp, criteria.fatVal) &&
             compareValue(carbs, criteria.carbsOp, criteria.carbsVal) &&
-            (calories === null ? true : compareValue(calories, criteria.caloriesOp, criteria.caloriesVal)) &&
+            compareValue(calories, criteria.caloriesOp, criteria.caloriesVal) &&
             (criteria.onlyProteinMoreThanFat ? proteinMoreThanFat : true);
 
         // "Only protein > fat" hides its misses even when non-matching cards are shown

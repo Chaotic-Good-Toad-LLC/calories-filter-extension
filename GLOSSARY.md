@@ -1,6 +1,6 @@
 # Glossary
 
-**Nutrition**: protein, fat, carbs (g) and calories (kcal) per 100 g of a product, as parsed from its product page. `calories` is `null` when the page gives none (and then passes any calories criterion); `0` is a real value.
+**Nutrition**: protein, fat, carbs (g) and calories (kcal) per 100 g of a product, as parsed from its product page. A value is `null` when the page doesn't give it: it shows as "—" and fails any criterion set on it (an empty field still passes). `0` is a real value.
 
 **Criteria**: what a Scan filters by: four operator/value pairs (protein, fat, carbs, calories) plus the three checkbox flags (hide products without data, hide non-matching, only protein > fat).
 

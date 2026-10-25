@@ -4,7 +4,7 @@
     const BZVK = root.BZVK = root.BZVK || { sites: {} };
 
     const DEFAULTS = {
-        settle: 3000, // ms to keep waiting after the page has loaded, for its script to add the nutrition
+        settle: 8000, // ms to keep waiting after the page has loaded, for its script to add the nutrition
         poll: 100     // ms between checks
     };
 
@@ -20,7 +20,8 @@
 
     // A fetch() for stores whose page script adds the nutrition after the page opens: loads the
     // product page in a hidden frame, as a visit would, and answers with the page as it is once
-    // isReady(doc) is true, or `settle` ms after it loaded. The page loader uses it in place of
+    // isReady(doc) is true. A page still not ready `settle` ms after it loaded fails like a network
+    // error, so it is retried and never cached as "no data". The page loader uses it in place of
     // fetch(), so its pauses, retries, timeout and cancel apply.
     // The frame is sandboxed so the page can't navigate this tab or open windows.
     function createFrameFetch({ document, isReady, options = {} }) {
@@ -68,6 +69,11 @@
                     reject(new DOMException('Aborted', 'AbortError'));
                 }
 
+                function giveUp() {
+                    finish();
+                    reject(new Error('The page did not show its nutrition'));
+                }
+
                 if (signal?.aborted) return onAbort();
                 signal?.addEventListener('abort', onAbort);
 
@@ -75,7 +81,7 @@
                     check();
                     if (done) return;
                     clearTimeout(settleTimer);
-                    settleTimer = setTimeout(respond, o.settle);
+                    settleTimer = setTimeout(giveUp, o.settle);
                 });
                 pollTimer = setInterval(check, o.poll);
                 frame.src = url;

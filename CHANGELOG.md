@@ -4,6 +4,7 @@
 - foodboom.ua works again after its redesign
 - Silpo: calories are read correctly, products with 0 kcal are no longer treated as unknown, and each product gets one badge
 - Checkboxes and empty filter fields work as expected: an empty field means "no limit"
+- Products whose page lists only some values show them, with "—" for the rest; an unknown value doesn't pass a limit on it
 - Card colours and the status counts update as soon as you change a filter
 - Checking is more reliable: slow or failed pages are retried, and checking stops if the store starts limiting requests
 - Products that fail to load are counted as "не вдалося" instead of "no data"

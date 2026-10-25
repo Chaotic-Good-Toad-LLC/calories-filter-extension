@@ -11,9 +11,10 @@
         fatOperator: '<=',
         carbsOperator: '<=',
         caloriesOperator: '<=',
-        // v8: unknown calories are null, not 0; pages without nutrition are stored as { noData: true }
-        cacheKey: 'calories_extention_nutrition_cache_v8',
-        oldCacheKeys: ['calories_extention_nutrition_cache_v7'],
+        // v9: any value can be null (unknown), so partial tables are kept; pages without nutrition
+        // are stored as { noData: true }
+        cacheKey: 'calories_extention_nutrition_cache_v9',
+        oldCacheKeys: ['calories_extention_nutrition_cache_v7', 'calories_extention_nutrition_cache_v8'],
         cacheExpiry: 604800000, // 7 days
         noDataCacheExpiry: 86400000, // 1 day: the store may add the nutrition table later
         maxFailedInARow: 5, // stop the Scan after this many products in a row fail to load
@@ -146,7 +147,7 @@
         const strong = document.createElement('strong');
         strong.textContent = prefix;
         div.appendChild(strong);
-        div.appendChild(document.createTextNode(` ${value}${suffix}`));
+        div.appendChild(document.createTextNode(value === null ? ' —' : ` ${value}${suffix}`));
         return div;
     }
 
@@ -551,13 +552,13 @@
             saveCheckboxFlags();
 
             filterBtn.disabled = true;
-            resetBtn.disabled = true;
+            resetBtn.style.display = 'none';
             stopBtn.style.display = '';
 
             await filterProducts(statusEl);
 
             filterBtn.disabled = false;
-            resetBtn.disabled = false;
+            resetBtn.style.display = '';
             stopBtn.style.display = 'none';
         });
 
