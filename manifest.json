@@ -21,7 +21,7 @@
         {
             "matches": ["https://silpo.ua/*", "https://foodboom.ua/*"],
             "css": ["styles.css"],
-            "js": ["src/match.js", "src/sites/adapter-kit.js", "src/sites/silpo.js", "src/sites/foodboom.js", "content.js"],
+            "js": ["src/match.js", "src/page-loader.js", "src/sites/adapter-kit.js", "src/sites/silpo.js", "src/sites/foodboom.js", "content.js"],
             "run_at": "document_idle"
         }
     ]

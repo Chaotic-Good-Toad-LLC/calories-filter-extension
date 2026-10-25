@@ -11,11 +11,12 @@
         fatOperator: '<=',
         carbsOperator: '<=',
         caloriesOperator: '<=',
-        // v8: unknown calories are null, not 0
+        // v8: unknown calories are null, not 0; pages without nutrition are stored as { noData: true }
         cacheKey: 'calories_extention_nutrition_cache_v8',
         oldCacheKeys: ['calories_extention_nutrition_cache_v7'],
         cacheExpiry: 604800000, // 7 days
-        requestDelay: 100, // ms after each product page request, to avoid rate limiting
+        noDataCacheExpiry: 86400000, // 1 day: the store may add the nutrition table later
+        maxFailedInARow: 5, // stop the Scan after this many products in a row fail to load
         hideWithoutNutritionKey: 'calories_extention_hide_without_nutrition',
         hideNonMatchingKey: 'calories_extention_hide_non_matching',
         onlyProteinMoreThanFatKey: 'calories_extention_only_protein_more_than_fat',
@@ -53,7 +54,8 @@
                 // Remove expired entries
                 const now = Date.now();
                 Object.keys(parsed).forEach(url => {
-                    if (now - parsed[url].timestamp > CONFIG.cacheExpiry) {
+                    const expiry = parsed[url].noData ? CONFIG.noDataCacheExpiry : CONFIG.cacheExpiry;
+                    if (now - parsed[url].timestamp > expiry) {
                         delete parsed[url];
                     }
                 });
@@ -72,18 +74,20 @@
             }
         }
 
-        get(url) {
-            return this.data[url];
+        has(url) {
+            return url in this.data;
         }
 
-        set(url, protein, fat, carbs, calories) {
-            this.data[url] = {
-                protein,
-                fat,
-                carbs,
-                calories,
-                timestamp: Date.now()
-            };
+        // Nutrition, or null for a page without it
+        get(url) {
+            const entry = this.data[url];
+            if (!entry || entry.noData) return null;
+            const { protein, fat, carbs, calories } = entry;
+            return { protein, fat, carbs, calories };
+        }
+
+        set(url, nutrition) {
+            this.data[url] = { ...(nutrition || { noData: true }), timestamp: Date.now() };
             this.save();
         }
     }
@@ -91,39 +95,21 @@
     const cache = new NutritionCache();
 
     let filterCancelled = false;
+    let activeLoader = null; // the running Scan's page loader, so "Зупинити" can cut a request short
 
     // === NUTRITION FETCHING ===
-    async function fetchNutritionInfo(url) {
-        // Check cache
-        const cached = cache.get(url);
-        if (cached) {
-            return {
-                protein: cached.protein,
-                fat: cached.fat,
-                carbs: cached.carbs,
-                calories: cached.calories
-            };
-        }
+    // → { status: 'ok', nutrition } (nutrition null when the page has none),
+    //   or { status: 'failed' | 'blocked' | 'cancelled' } from the page loader
+    async function fetchNutritionInfo(url, loader) {
+        if (cache.has(url)) return { status: 'ok', nutrition: cache.get(url) };
 
-        let html;
-        try {
-            const response = await fetch(url);
-            html = await response.text();
-        } catch (e) {
-            console.error('Failed to fetch nutrition for', url, e);
-            return null;
-        } finally {
-            // Only requests are spaced out; cache hits return straight away
-            await new Promise(resolve => setTimeout(resolve, CONFIG.requestDelay));
-        }
+        const page = await loader.load(url);
+        if (page.status !== 'ok') return page;
 
-        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const doc = new DOMParser().parseFromString(page.html, 'text/html');
         const nutrition = currentSite.parseNutrition(doc);
-        if (!nutrition) return null;
-
-        const { protein, fat, carbs, calories } = nutrition;
-        cache.set(url, protein, fat, carbs, calories);
-        return nutrition;
+        cache.set(url, nutrition);
+        return { status: 'ok', nutrition };
     }
 
     // === CRITERIA ===
@@ -248,38 +234,75 @@
         statusEl.textContent = `🔍 Знайдено ${products.length} товарів. Починаю перевірку...`;
 
         filterCancelled = false;
+        const loader = BZVK.pageLoader.createPageLoader({
+            fetch: (url, init) => fetch(url, init),
+            sleep: ms => new Promise(resolve => setTimeout(resolve, ms))
+        });
+        activeLoader = loader;
         const checked = [];
+        let failed = 0;
+        let failedInARow = 0;
 
-        // url is read here, just before the fetch, since the site may have re-rendered the card
-        for (const { card, url } of products) {
-            if (filterCancelled) {
-                const { match, hidden } = countCards(checked);
-                statusEl.textContent = `⛔ Зупинено. Перевірено: ${checked.length}, підходить: ${match}, приховано: ${hidden}`;
-                return;
+        const summary = () => {
+            const { match, hidden } = countCards(checked);
+            return `Перевірено: ${checked.length}, підходить: ${match}, приховано: ${hidden}` +
+                (failed > 0 ? `, не вдалося: ${failed}` : '');
+        };
+
+        try {
+            // url is read here, just before the fetch, since the site may have re-rendered the card
+            for (const { card, url } of products) {
+                if (filterCancelled) {
+                    statusEl.textContent = `⛔ Зупинено. ${summary()}`;
+                    return;
+                }
+
+                statusEl.textContent = `⏳ Перевірка ${checked.length + failed + 1}/${products.length}... Знайдено: ${countCards(checked).match}`;
+                // Skip cards without a product link, and cards the site has removed from the page
+                if (!url || !card.isConnected) continue;
+
+                // Highlight the product being checked
+                card.classList.add('silpo-checking');
+                const result = await fetchNutritionInfo(url, loader);
+                card.classList.remove('silpo-checking');
+
+                if (result.status === 'cancelled') continue; // reported at the top of the loop
+                if (result.status === 'blocked') {
+                    statusEl.textContent = `🛑 Сайт тимчасово обмежив запити, перевірку зупинено. Спробуйте пізніше. ${summary()}`;
+                    return;
+                }
+                // A product that failed to load is left unmarked: no data is not the same as unknown
+                if (result.status === 'failed') {
+                    failed++;
+                    failedInARow++;
+                    if (failedInARow >= CONFIG.maxFailedInARow) {
+                        statusEl.textContent = `📡 Не вдається завантажити товари, перевірку зупинено. Перевірте з'єднання. ${summary()}`;
+                        return;
+                    }
+                    continue;
+                }
+                failedInARow = 0;
+
+                scannedCards.set(card, result.nutrition);
+                checked.push(card);
+                markCard(card, result.nutrition, evaluate(result.nutrition, currentCriteria()));
             }
+        } finally {
+            activeLoader = null;
+        }
 
-            statusEl.textContent = `⏳ Перевірка ${checked.length + 1}/${products.length}... Знайдено: ${countCards(checked).match}`;
-            if (!url) continue;
-
-            // Highlight the product being checked
-            card.classList.add('silpo-checking');
-
-            const nutrition = await fetchNutritionInfo(url);
-
-            // Remove highlight
-            card.classList.remove('silpo-checking');
-
-            scannedCards.set(card, nutrition);
-            checked.push(card);
-            markCard(card, nutrition, evaluate(nutrition, currentCriteria()));
+        if (filterCancelled) {
+            statusEl.textContent = `⛔ Зупинено. ${summary()}`;
+            return;
         }
 
         const { match, miss, noData, hidden } = countCards(checked);
+        const failedNote = failed > 0 ? `, не вдалося: ${failed}` : '';
         if (readCheckboxFlags().hideNonMatching) {
-            statusEl.textContent = `✅ Готово! Показано: ${checked.length - hidden}, приховано: ${hidden}`;
+            statusEl.textContent = `✅ Готово! Показано: ${checked.length - hidden}, приховано: ${hidden}` + failedNote;
         } else {
             statusEl.textContent = `✅ Готово! Підходить: ${match}, не підходить: ${miss}` +
-                (noData > 0 ? `, без даних: ${noData}` : '');
+                (noData > 0 ? `, без даних: ${noData}` : '') + failedNote;
         }
     }
 
@@ -537,6 +560,7 @@
 
         stopBtn.addEventListener('click', () => {
             filterCancelled = true;
+            activeLoader?.cancel();
         });
 
         resetBtn.addEventListener('click', () => {
