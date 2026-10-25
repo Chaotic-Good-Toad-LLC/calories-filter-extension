@@ -69,10 +69,17 @@
         return productList(doc.querySelectorAll('.card.card--float'), productUrl);
     }
 
+    // The product page's script adds the characteristics after the page opens, so the HTML
+    // fetch() gets mostly has none; the Scan loads these pages in a frame and waits for this
+    function nutritionRendered(doc) {
+        return !!doc.querySelector(CHARACTERISTIC_ROWS);
+    }
+
     BZVK.sites.foodboom = {
         hostname: 'foodboom.ua',
         findProducts,
-        parseNutrition: parseFoodBoomNutrition
+        parseNutrition: parseFoodBoomNutrition,
+        nutritionRendered
     };
 
     if (typeof module !== 'undefined' && module.exports) module.exports = BZVK.sites.foodboom;

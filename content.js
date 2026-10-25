@@ -234,8 +234,11 @@
         statusEl.textContent = `🔍 Знайдено ${products.length} товарів. Починаю перевірку...`;
 
         filterCancelled = false;
+        // A store whose page script adds the nutrition has its pages loaded in a frame instead
         const loader = BZVK.pageLoader.createPageLoader({
-            fetch: (url, init) => fetch(url, init),
+            fetch: currentSite.nutritionRendered
+                ? BZVK.frameFetch.createFrameFetch({ document, isReady: currentSite.nutritionRendered })
+                : (url, init) => fetch(url, init),
             sleep: ms => new Promise(resolve => setTimeout(resolve, ms))
         });
         activeLoader = loader;

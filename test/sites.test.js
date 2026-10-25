@@ -28,6 +28,9 @@ const foodboomProducts = [
     ['product-nut-mix.html.gz', { protein: 2, fat: 11.2, carbs: 67.8, calories: 382 }],
     ['product-kombucha.html.gz', { protein: 0, fat: 0, carbs: 6, calories: 24 }],
     ['product-tea-gift-set.html.gz', null],
+    // The same product page as fetch() gets it now, and after the page script added the table
+    ['product-monster-fetched.html.gz', null],
+    ['product-monster-rendered.html.gz', { protein: 0, fat: 0, carbs: 0.7, calories: 2 }],
 ];
 
 for (const [fixture, expected] of foodboomProducts) {
@@ -35,6 +38,11 @@ for (const [fixture, expected] of foodboomProducts) {
         assert.deepEqual(foodboom.parseNutrition(parseFixture(`foodboom/${fixture}`)), expected);
     });
 }
+
+test('foodboom nutritionRendered tells a page with the characteristics from one still waiting for them', () => {
+    assert.equal(foodboom.nutritionRendered(parseFixture('foodboom/product-monster-fetched.html.gz')), false);
+    assert.equal(foodboom.nutritionRendered(parseFixture('foodboom/product-monster-rendered.html.gz')), true);
+});
 
 test('foodboom parseNutrition still reads nutrition written in the description', () => {
     const doc = new JSDOM('<div class="product_description_text">Харчова цінність: білки – 7,5 г, жири – 3 г, вуглеводи – 60 г, 310 ккал</div>').window.document;

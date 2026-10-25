@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadExtension, waitFor } = require('./helpers.js');
+const { loadExtension, loadFixture, waitFor } = require('./helpers.js');
 
 // Default Criteria (no saved values): protein >= 10, fat <= 10, carbs <= 20, calories <= 200.
 const PRODUCTS = {
@@ -300,4 +300,29 @@ test('"Зупинити пошук" stops a request that is still loading', asyn
     await waitFor(() => page.status().startsWith('⛔'), { timeout: 1000 });
     assert.equal(page.status(), '⛔ Зупинено. Перевірено: 0, підходить: 0, приховано: 0');
     page.window.close();
+});
+
+test('foodboom product pages are loaded in a frame, not with fetch()', async () => {
+    const window = loadExtension({
+        url: 'https://foodboom.ua/napoi/',
+        html: `<div class="card card--float"><a class="card-title" href="/monster/">Monster</a></div>
+            <div class="card card--float"><a class="card-title" href="/sik/">Сік</a></div>`,
+        fetch: () => { throw new Error('fetch() was used'); },
+    });
+    const framed = [];
+    window.BZVK.frameFetch.createFrameFetch = ({ isReady }) => {
+        assert.equal(isReady, window.BZVK.sites.foodboom.nutritionRendered);
+        return async (url) => {
+            framed.push(url);
+            const html = url.endsWith('/monster/') ? loadFixture('foodboom/product-monster-rendered.html.gz') : '<html><body></body></html>';
+            return { status: 200, ok: true, headers: { get: () => null }, text: async () => html };
+        };
+    };
+    const $ = (id) => window.document.getElementById(id);
+    await waitFor(() => $('silpo-filter-btn'));
+    $('silpo-filter-btn').click();
+    await waitFor(() => $('silpo-filter-status').textContent.startsWith('✅'), { timeout: 5000 });
+    assert.deepEqual(framed, ['https://foodboom.ua/monster/', 'https://foodboom.ua/sik/']);
+    assert.equal($('silpo-filter-status').textContent, '✅ Готово! Підходить: 0, не підходить: 1, без даних: 1');
+    window.close();
 });
