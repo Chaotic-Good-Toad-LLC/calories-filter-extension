@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Source for icon16/48/128.png: a filter funnel with a check badge, in the panel's green -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="#00a046"/>
+  <path d="M22 30 H96 L67 63 V93 L51 102 V63 Z" fill="#fff" stroke="#fff" stroke-width="6" stroke-linejoin="round"/>
+  <circle cx="94" cy="94" r="25" fill="#fff" stroke="#00a046" stroke-width="7"/>
+  <path d="M82 94 L91 103 L106 86" fill="none" stroke="#00a046" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
