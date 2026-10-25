@@ -1,7 +1,7 @@
 # Changelog
 
 ## 0.15
-- foodboom.ua works again after its redesign
+- foodboom.ua works again after its redesign; its product pages are opened in the background like a visit, so the store's own analytics see them (see PRIVACY.md)
 - Silpo: calories are read correctly, products with 0 kcal are no longer treated as unknown, and each product gets one badge
 - Checkboxes and empty filter fields work as expected: an empty field means "no limit"
 - Products whose page lists only some values show them, with "—" for the rest; an unknown value doesn't pass a limit on it

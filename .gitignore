@@ -17,3 +17,6 @@ Thumbs.db
 
 # Dev tooling
 node_modules/
+
+# Live check reports (scripts/live-check.mjs)
+live-check-results/
