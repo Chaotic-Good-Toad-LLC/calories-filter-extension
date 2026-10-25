@@ -10,6 +10,6 @@ OUTPUTS=(bjvk-filter-chrome.zip calories-filter-firefox.zip)
 
 for out in "${OUTPUTS[@]}"; do
     rm -f "$out"
-    zip -r -X -q "$out" "${FILES[@]}" -x '*.DS_Store'
+    zip -r -X -q "$out" "${FILES[@]}" -x '*.DS_Store' 'icons/*.svg'
     echo "Built $out"
 done
