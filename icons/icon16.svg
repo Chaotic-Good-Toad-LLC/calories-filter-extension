@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Source for icon16.png: icon.svg's funnel alone and larger, since the check badge blurs at 16 px -->
+  <rect x="0" y="0" width="128" height="128" rx="28" fill="#00a046"/>
+  <path d="M18 26 H110 L76 66 V100 L52 112 V66 Z" fill="#fff" stroke="#fff" stroke-width="6" stroke-linejoin="round"/>
+</svg>

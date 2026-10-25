@@ -11,8 +11,13 @@
         fatOperator: '<=',
         carbsOperator: '<=',
         caloriesOperator: '<=',
-        cacheKey: 'calories_extention_nutrition_cache_v7',
+        // v9: any value can be null (unknown), so partial tables are kept; pages without nutrition
+        // are stored as { noData: true }
+        cacheKey: 'calories_extention_nutrition_cache_v9',
+        oldCacheKeys: ['calories_extention_nutrition_cache_v7', 'calories_extention_nutrition_cache_v8'],
         cacheExpiry: 604800000, // 7 days
+        noDataCacheExpiry: 86400000, // 1 day: the store may add the nutrition table later
+        maxFailedInARow: 5, // stop the Scan after this many products in a row fail to load
         hideWithoutNutritionKey: 'calories_extention_hide_without_nutrition',
         hideNonMatchingKey: 'calories_extention_hide_non_matching',
         onlyProteinMoreThanFatKey: 'calories_extention_only_protein_more_than_fat',
@@ -21,167 +26,12 @@
         themeKey: 'calories_extention_theme'
     };
 
-    // === NUTRITION PARSERS ===
+    const { evaluate } = BZVK.match;
 
-    function parseSilpoNutrition(doc) {
-        // Find the nutrition section — more specific search
-        const nutritionSectionCandidates = Array.from(doc.querySelectorAll('*')).filter(el => {
-            const text = el.textContent;
-            return (text.includes('Харчова цінність') || text.includes('харчова цінність')) &&
-                text.includes('Білки');
-        });
-
-        // Sort from smallest element (most specific) to largest
-        nutritionSectionCandidates.sort((a, b) => a.textContent.length - b.textContent.length);
-
-        let protein = null;
-        let fat = null;
-        let carbs = null;
-        let calories = null;
-
-        // Search within the nutrition section
-        for (const section of nutritionSectionCandidates) {
-            const sectionText = section.textContent;
-
-            // Calories: match "NUMBER/NUMBER" (kcal/kJ) or just "NUMBER/" (no kJ)
-            // Sometimes the order is swapped (kJ/kcal), so we detect and swap back
-            if (calories === null) {
-                const caloriesMatch = sectionText.match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)?/);
-                if (caloriesMatch) {
-                    let a = parseFloat(caloriesMatch[1].replace(',', '.'));
-                    let b = caloriesMatch[2] ? parseFloat(caloriesMatch[2].replace(',', '.')) : null;
-                    if (b === null) {
-                        // Only one number before the slash — treat as kcal
-                        calories = a;
-                    } else if (b > a && b < a * 10) {
-                        // Normal order: kcal/kJ (62/260)
-                        calories = a;
-                    } else if (a > b && a < b * 10) {
-                        // Reversed order: kJ/kcal (427/101) — swap
-                        calories = b;
-                    }
-                }
-            }
-
-            if (protein === null) {
-                const proteinMatch = sectionText.match(/Білки\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                if (proteinMatch) {
-                    protein = parseFloat(proteinMatch[1].replace(',', '.'));
-                }
-            }
-
-            if (fat === null) {
-                const fatMatch = sectionText.match(/Жири\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                if (fatMatch) {
-                    fat = parseFloat(fatMatch[1].replace(',', '.'));
-                }
-            }
-
-            if (carbs === null) {
-                const carbsMatch = sectionText.match(/Вуглеводи\s*\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                if (carbsMatch) {
-                    carbs = parseFloat(carbsMatch[1].replace(',', '.'));
-                }
-            }
-
-            if (protein !== null && fat !== null && carbs !== null && calories !== null) break;
-        }
-
-        // If not found in main sections, try fallback approach
-        if (protein === null || fat === null || carbs === null || calories === null) {
-            const allElements = Array.from(doc.querySelectorAll('*'));
-
-            for (const el of allElements) {
-                const text = el.textContent;
-
-                // Calories via NUMBER/ or NUMBER/NUMBER format (with swap if order is reversed)
-                if (calories === null) {
-                    const match = text.match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)?/);
-                    if (match) {
-                        let a = parseFloat(match[1].replace(',', '.'));
-                        let b = match[2] ? parseFloat(match[2].replace(',', '.')) : null;
-                        if (b === null) {
-                            calories = a;
-                        } else if (b > a && b < a * 10) {
-                            calories = a;
-                        } else if (a > b && a < b * 10) {
-                            calories = b;
-                        }
-                    }
-                }
-
-                if (protein === null && /Білки.*?\(г\)/i.test(text)) {
-                    const match = text.match(/Білки.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                    if (match) protein = parseFloat(match[1].replace(',', '.'));
-                }
-
-                if (fat === null && /Жири.*?\(г\)/i.test(text)) {
-                    const match = text.match(/Жири.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                    if (match) fat = parseFloat(match[1].replace(',', '.'));
-                }
-
-                if (carbs === null && /Вуглеводи.*?\(г\)/i.test(text)) {
-                    const match = text.match(/Вуглеводи.*?\(г\)[^\d]*(\d+[.,]?\d*)/i);
-                    if (match) carbs = parseFloat(match[1].replace(',', '.'));
-                }
-
-                if (protein !== null && fat !== null && carbs !== null && calories !== null) break;
-            }
-        }
-
-        if (protein === null || fat === null || carbs === null) return null;
-        if (calories === null) calories = 0;
-
-        return { protein, fat, carbs, calories };
-    }
-
-    function parseFoodBoomNutrition(doc) {
-        const container = doc.querySelector('.product_description_text');
-        const text = container?.textContent || doc.body?.textContent || '';
-
-        const proteinMatch = text.match(/білки\s*[-–—]\s*(\d+[.,]?\d*)\s*г/i);
-        const fatMatch     = text.match(/жири\s*[-–—]\s*(\d+[.,]?\d*)\s*г/i);
-        const carbsMatch   = text.match(/вуглеводи\s*[-–—]\s*(\d+[.,]?\d*)\s*г/i);
-        const calMatch     = text.match(/(\d{2,}[.,]?\d*)\s*ккал/i);
-
-        const parse = (m) => m ? parseFloat(m[1].replace(',', '.')) : null;
-        const protein  = parse(proteinMatch);
-        const fat      = parse(fatMatch);
-        const carbs    = parse(carbsMatch);
-        const calories = parse(calMatch);
-
-        if (protein === null || fat === null || carbs === null) return null;
-        return { protein, fat, carbs, calories: calories ?? 0 };
-    }
-
-    // === SITE CONFIG ===
-    const SITE_CONFIG = {
-        silpo: {
-            hostname: 'silpo.ua',
-            productCardSelectors: [
-                'article[class*="product"]',
-                'div[class*="product-card"]',
-                'a[href*="/product/"]',
-                '[data-testid*="product"]'
-            ],
-            productLinkPattern: /\/product\//,
-            getProductLink: (card) => card.href || card.querySelector('a')?.href,
-            parseNutrition: parseSilpoNutrition
-        },
-        foodboom: {
-            hostname: 'foodboom.ua',
-            productCardSelectors: [
-                '.card-item--float'
-            ],
-            productLinkPattern: /^https:\/\/foodboom\.ua\/[^/]+\/$/,
-            getProductLink: (card) => card.querySelector('.card-item__name a')?.href,
-            parseNutrition: parseFoodBoomNutrition
-        }
-    };
-
+    // === SITE DETECTION ===
     function detectSite() {
         const hostname = window.location.hostname;
-        for (const site of Object.values(SITE_CONFIG)) {
+        for (const site of Object.values(BZVK.sites)) {
             if (hostname.includes(site.hostname)) return site;
         }
         return null;
@@ -197,6 +47,7 @@
 
         load() {
             try {
+                CONFIG.oldCacheKeys.forEach(key => localStorage.removeItem(key));
                 const cached = localStorage.getItem(CONFIG.cacheKey);
                 if (!cached) return {};
                 const parsed = JSON.parse(cached);
@@ -204,7 +55,8 @@
                 // Remove expired entries
                 const now = Date.now();
                 Object.keys(parsed).forEach(url => {
-                    if (now - parsed[url].timestamp > CONFIG.cacheExpiry) {
+                    const expiry = parsed[url].noData ? CONFIG.noDataCacheExpiry : CONFIG.cacheExpiry;
+                    if (now - parsed[url].timestamp > expiry) {
                         delete parsed[url];
                     }
                 });
@@ -223,18 +75,20 @@
             }
         }
 
-        get(url) {
-            return this.data[url];
+        has(url) {
+            return url in this.data;
         }
 
-        set(url, protein, fat, carbs, calories) {
-            this.data[url] = {
-                protein,
-                fat,
-                carbs,
-                calories,
-                timestamp: Date.now()
-            };
+        // Nutrition, or null for a page without it
+        get(url) {
+            const entry = this.data[url];
+            if (!entry || entry.noData) return null;
+            const { protein, fat, carbs, calories } = entry;
+            return { protein, fat, carbs, calories };
+        }
+
+        set(url, nutrition) {
+            this.data[url] = { ...(nutrition || { noData: true }), timestamp: Date.now() };
             this.save();
         }
     }
@@ -242,257 +96,41 @@
     const cache = new NutritionCache();
 
     let filterCancelled = false;
+    let activeLoader = null; // the running Scan's page loader, so "Зупинити" can cut a request short
 
     // === NUTRITION FETCHING ===
-    async function fetchNutritionInfo(url) {
-        // Check cache
-        const cached = cache.get(url);
-        if (cached) {
-            return {
-                protein: cached.protein,
-                fat: cached.fat,
-                carbs: cached.carbs,
-                calories: cached.calories
-            };
-        }
+    // → { status: 'ok', nutrition } (nutrition null when the page has none),
+    //   or { status: 'failed' | 'blocked' | 'cancelled' } from the page loader
+    async function fetchNutritionInfo(url, loader) {
+        if (cache.has(url)) return { status: 'ok', nutrition: cache.get(url) };
 
-        try {
-            const response = await fetch(url);
-            const html = await response.text();
-            const doc = new DOMParser().parseFromString(html, 'text/html');
+        const page = await loader.load(url);
+        if (page.status !== 'ok') return page;
 
-            const nutrition = currentSite.parseNutrition(doc);
-            if (!nutrition) return null;
-
-            const { protein, fat, carbs, calories } = nutrition;
-            cache.set(url, protein, fat, carbs, calories);
-            return nutrition;
-        } catch (e) {
-            console.error('Failed to fetch nutrition for', url, e);
-            return null;
-        }
+        const doc = new DOMParser().parseFromString(page.html, 'text/html');
+        const nutrition = currentSite.parseNutrition(doc);
+        cache.set(url, nutrition);
+        return { status: 'ok', nutrition };
     }
 
-    // === PRODUCT FILTERING ===
-    function compareValue(actual, operator, target) {
-        switch (operator) {
-            case '<': return actual < target;
-            case '<=': return actual <= target;
-            case '=': return Math.abs(actual - target) < 0.1; // 0.1g tolerance
-            case '>=': return actual >= target;
-            case '>': return actual > target;
-            default: return true;
-        }
+    // === CRITERIA ===
+    // Numbers and operators from the last "Застосувати фільтр"; checkbox flags are always read live
+    let appliedCriteria = null;
+
+    function readCheckboxFlags() {
+        return {
+            hideWithoutNutrition: !!document.getElementById('silpo-hide-without-nutrition')?.checked,
+            hideNonMatching: !!document.getElementById('silpo-hide-non-matching')?.checked,
+            onlyProteinMoreThanFat: !!document.getElementById('silpo-only-protein-more-than-fat')?.checked
+        };
     }
 
-    async function filterProducts(proteinOp, proteinVal, fatOp, fatVal, carbsOp, carbsVal, caloriesOp, caloriesVal, hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat, statusEl) {
-        let productCards = [];
-        for (const selector of currentSite.productCardSelectors) {
-            productCards = document.querySelectorAll(selector);
-            if (productCards.length > 0) break;
-        }
-
-        // Count only cards that have a valid product link
-        const validCards = Array.from(productCards).filter(card => {
-            const link = currentSite.getProductLink(card);
-            return link && currentSite.productLinkPattern.test(link);
-        });
-
-        if (validCards.length === 0) {
-            statusEl.textContent = '❌ Не знайдено товарів на цій сторінці';
-            return;
-        }
-
-        statusEl.textContent = `🔍 Знайдено ${validCards.length} товарів. Починаю перевірку...`;
-
-        filterCancelled = false;
-        let processed = 0;
-        let matched = 0;
-        let hidden = 0;
-
-        function createNutritionLabel(prefix, value, suffix) {
-            const div = document.createElement('div');
-            div.className = 'silpo-nutrition-label';
-            const strong = document.createElement('strong');
-            strong.textContent = prefix;
-            div.appendChild(strong);
-            div.appendChild(document.createTextNode(` ${value}${suffix}`));
-            return div;
-        }
-
-        for (const card of validCards) {
-            if (filterCancelled) {
-                statusEl.textContent = `⛔ Зупинено. Перевірено: ${processed}, підходить: ${matched}, приховано: ${hidden}`;
-                return;
-            }
-
-            const productLink = currentSite.getProductLink(card);
-
-            processed++;
-            statusEl.textContent = `⏳ Перевірка ${processed}/${validCards.length}... Знайдено: ${matched}`;
-
-            // Highlight the product being checked
-            card.classList.add('silpo-checking');
-
-            const nutrition = await fetchNutritionInfo(productLink);
-
-            // Remove highlight
-            card.classList.remove('silpo-checking');
-
-            // Remove previous nutrition info if present
-            const existingInfo = card.querySelector('.silpo-nutrition-info');
-            if (existingInfo) {
-                existingInfo.remove();
-            }
-
-            if (!nutrition) {
-                if (hideWithoutNutrition) {
-                    hidden++;
-                    card.classList.add('silpo-hidden');
-                } else {
-                    card.classList.add('silpo-card-yellow');
-                    const infoDiv = document.createElement('div');
-                    infoDiv.className = 'silpo-nutrition-info silpo-badge-yellow';
-                    infoDiv.textContent = '⚠️ Немає даних про БЖВ';
-                    card.appendChild(infoDiv);
-                }
-                continue;
-            }
-
-            const { protein, fat, carbs, calories } = nutrition;
-
-            // Store nutrition data on card for dynamic filtering
-            card.dataset.protein = protein;
-            card.dataset.fat = fat;
-            card.dataset.carbs = carbs;
-            card.dataset.calories = calories;
-
-            // Check all filter conditions
-            const proteinMatch = compareValue(protein, proteinOp, proteinVal);
-            const fatMatch = compareValue(fat, fatOp, fatVal);
-            const carbsMatch = compareValue(carbs, carbsOp, carbsVal);
-            const caloriesMatch = calories > 0 ? compareValue(calories, caloriesOp, caloriesVal) : true;
-            const proteinMoreThanFat = protein > fat;
-            const muscleMatch = onlyProteinMoreThanFat ? proteinMoreThanFat : true;
-            const isMatch = proteinMatch && fatMatch && carbsMatch && caloriesMatch && muscleMatch;
-
-            // Add nutrition info badge below the product
-            const infoDiv = document.createElement('div');
-            infoDiv.className = 'silpo-nutrition-info';
-
-            infoDiv.appendChild(createNutritionLabel('Б:', protein, 'г'));
-            infoDiv.appendChild(createNutritionLabel('Ж:', fat, 'г'));
-            infoDiv.appendChild(createNutritionLabel('В:', carbs, 'г'));
-
-            if (calories > 0) {
-                const calDiv = document.createElement('div');
-                calDiv.className = 'silpo-nutrition-label';
-                if (isMatch) {
-                    const calorieEmoji = calories <= 100 ? '🔥' : '👍';
-                    calDiv.appendChild(document.createTextNode(calorieEmoji + ' '));
-                }
-                const strong = document.createElement('strong');
-                strong.textContent = calories;
-                calDiv.appendChild(strong);
-                calDiv.appendChild(document.createTextNode(' ккал'));
-                infoDiv.appendChild(calDiv);
-            }
-
-            // Add muscle emoji if protein > fat
-            if (proteinMoreThanFat) {
-                const muscleDiv = document.createElement('div');
-                muscleDiv.className = 'silpo-nutrition-label';
-                muscleDiv.textContent = '💪';
-                muscleDiv.title = 'Білків більше ніж жирів';
-                infoDiv.appendChild(muscleDiv);
-            }
-
-            // Hide if muscle filter is on and protein <= fat
-            const hideByMuscle = onlyProteinMoreThanFat && !proteinMoreThanFat;
-
-            if (isMatch) {
-                matched++;
-                card.classList.remove('silpo-hidden');
-                card.classList.add('silpo-card-green');
-                infoDiv.classList.add('silpo-badge-green');
-            } else {
-                hidden++;
-                card.classList.add('silpo-card-red');
-                infoDiv.classList.add('silpo-badge-red');
-                if (hideNonMatching || hideByMuscle) {
-                    card.classList.add('silpo-hidden');
-                } else {
-                    card.classList.remove('silpo-hidden');
-                }
-            }
-            // Always append the badge
-            card.appendChild(infoDiv);
-
-            // Small delay to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-
-        statusEl.textContent = hideNonMatching
-            ? `✅ Готово! Показано: ${matched}, приховано: ${hidden}`
-            : `✅ Готово! Підходить: ${matched}, не підходить: ${hidden}`;
+    function currentCriteria() {
+        return { ...appliedCriteria, ...readCheckboxFlags() };
     }
 
-    // === DYNAMIC VISIBILITY ===
-    function applyVisibility() {
-        const hideWithoutNutrition = document.getElementById('silpo-hide-without-nutrition')?.checked;
-        const hideNonMatching = document.getElementById('silpo-hide-non-matching')?.checked;
-        const onlyProteinMoreThanFat = document.getElementById('silpo-only-protein-more-than-fat')?.checked;
-
-        const proteinOp = document.getElementById('silpo-protein-op')?.value || '>=';
-        const proteinVal = parseFloat(document.getElementById('silpo-protein-val')?.value) || 0;
-        const fatOp = document.getElementById('silpo-fat-op')?.value || '<=';
-        const fatVal = parseFloat(document.getElementById('silpo-fat-val')?.value) || 0;
-        const carbsOp = document.getElementById('silpo-carbs-op')?.value || '<=';
-        const carbsVal = parseFloat(document.getElementById('silpo-carbs-val')?.value) || 0;
-        const caloriesOp = document.getElementById('silpo-calories-op')?.value || '<=';
-        const caloriesVal = parseFloat(document.getElementById('silpo-calories-val')?.value) || 0;
-
-        // Find all cards with nutrition data
-        const cardsWithData = document.querySelectorAll('[data-protein]');
-        // Find cards without nutrition (yellow badge)
-        const cardsWithoutData = document.querySelectorAll('.silpo-card-yellow');
-
-        // Handle cards without nutrition data
-        cardsWithoutData.forEach(card => {
-            if (hideWithoutNutrition) {
-                card.classList.add('silpo-hidden');
-            } else {
-                card.classList.remove('silpo-hidden');
-            }
-        });
-
-        // Handle cards with nutrition data
-        cardsWithData.forEach(card => {
-            const protein = parseFloat(card.dataset.protein);
-            const fat = parseFloat(card.dataset.fat);
-            const carbs = parseFloat(card.dataset.carbs);
-            const calories = parseFloat(card.dataset.calories);
-
-            const proteinMatch = compareValue(protein, proteinOp, proteinVal);
-            const fatMatch = compareValue(fat, fatOp, fatVal);
-            const carbsMatch = compareValue(carbs, carbsOp, carbsVal);
-            const caloriesMatch = calories > 0 ? compareValue(calories, caloriesOp, caloriesVal) : true;
-            const proteinMoreThanFat = protein > fat;
-            const muscleMatch = onlyProteinMoreThanFat ? proteinMoreThanFat : true;
-            const isMatch = proteinMatch && fatMatch && carbsMatch && caloriesMatch && muscleMatch;
-
-            const hideByMuscle = onlyProteinMoreThanFat && !proteinMoreThanFat;
-
-            if (isMatch) {
-                card.classList.remove('silpo-hidden');
-            } else if (hideNonMatching || hideByMuscle) {
-                card.classList.add('silpo-hidden');
-            } else {
-                card.classList.remove('silpo-hidden');
-            }
-        });
-
-        // Save checkbox states
+    function saveCheckboxFlags() {
+        const { hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat } = readCheckboxFlags();
         try {
             localStorage.setItem(CONFIG.hideWithoutNutritionKey, hideWithoutNutrition);
             localStorage.setItem(CONFIG.hideNonMatchingKey, hideNonMatching);
@@ -500,6 +138,189 @@
         } catch (e) {
             console.error('Failed to save checkbox states:', e);
         }
+    }
+
+    // === CARD MARKING ===
+    function createNutritionLabel(prefix, value, suffix) {
+        const div = document.createElement('div');
+        div.className = 'silpo-nutrition-label';
+        const strong = document.createElement('strong');
+        strong.textContent = prefix;
+        div.appendChild(strong);
+        div.appendChild(document.createTextNode(value === null ? ' —' : ` ${value}${suffix}`));
+        return div;
+    }
+
+    // Every card a Scan has marked → its Nutrition (null for no data), so checkbox changes can re-evaluate it
+    const scannedCards = new Map();
+
+    // Removes a card's badge, colour and hiding
+    function unmarkCard(card) {
+        card.querySelector('.silpo-nutrition-info')?.remove();
+        card.classList.remove('silpo-card-green', 'silpo-card-red', 'silpo-card-yellow', 'silpo-hidden');
+    }
+
+    // Draws a card's badge, colour and visibility from its Nutrition and the result of evaluate()
+    function markCard(card, nutrition, result) {
+        unmarkCard(card);
+        card.classList.toggle('silpo-hidden', result.hidden);
+
+        const infoDiv = document.createElement('div');
+
+        if (result.verdict === 'noData') {
+            card.classList.add('silpo-card-yellow');
+            infoDiv.className = 'silpo-nutrition-info silpo-badge-yellow';
+            infoDiv.textContent = '⚠️ Немає даних про БЖВ';
+            card.appendChild(infoDiv);
+            return;
+        }
+
+        const { protein, fat, carbs, calories } = nutrition;
+        const colour = result.verdict === 'match' ? 'green' : 'red';
+        card.classList.add(`silpo-card-${colour}`);
+        infoDiv.className = `silpo-nutrition-info silpo-badge-${colour}`;
+
+        infoDiv.appendChild(createNutritionLabel('Б:', protein, 'г'));
+        infoDiv.appendChild(createNutritionLabel('Ж:', fat, 'г'));
+        infoDiv.appendChild(createNutritionLabel('В:', carbs, 'г'));
+
+        if (calories !== null) {
+            const calDiv = document.createElement('div');
+            calDiv.className = 'silpo-nutrition-label';
+            const strong = document.createElement('strong');
+            strong.textContent = calories;
+            calDiv.appendChild(strong);
+            calDiv.appendChild(document.createTextNode(' ккал'));
+            infoDiv.appendChild(calDiv);
+        }
+
+        // Add muscle emoji if protein > fat
+        if (result.proteinMoreThanFat) {
+            const muscleDiv = document.createElement('div');
+            muscleDiv.className = 'silpo-nutrition-label';
+            muscleDiv.textContent = '💪';
+            muscleDiv.title = 'Білків більше ніж жирів';
+            infoDiv.appendChild(muscleDiv);
+        }
+
+        card.appendChild(infoDiv);
+    }
+
+    // === PRODUCT FILTERING ===
+    // Counts for the status line, from each card's current state
+    function countCards(cards) {
+        const criteria = currentCriteria();
+        const counts = { match: 0, miss: 0, noData: 0, hidden: 0 };
+        for (const card of cards) {
+            const result = evaluate(scannedCards.get(card), criteria);
+            counts[result.verdict]++;
+            if (result.hidden) counts.hidden++;
+        }
+        return counts;
+    }
+
+    async function filterProducts(statusEl) {
+        const products = currentSite.findProducts(document);
+
+        if (products.length === 0) {
+            statusEl.textContent = '❌ Не знайдено товарів на цій сторінці';
+            return;
+        }
+
+        statusEl.textContent = `🔍 Знайдено ${products.length} товарів. Починаю перевірку...`;
+
+        filterCancelled = false;
+        // A store whose page script adds the nutrition has its pages loaded in a frame instead
+        const loader = BZVK.pageLoader.createPageLoader({
+            fetch: currentSite.nutritionRendered
+                ? BZVK.frameFetch.createFrameFetch({ document, isReady: currentSite.nutritionRendered })
+                : (url, init) => fetch(url, init),
+            sleep: ms => new Promise(resolve => setTimeout(resolve, ms))
+        });
+        activeLoader = loader;
+        const checked = [];
+        let failed = 0;
+        let failedInARow = 0;
+
+        const summary = () => {
+            const { match, hidden } = countCards(checked);
+            return `Перевірено: ${checked.length}, підходить: ${match}, приховано: ${hidden}` +
+                (failed > 0 ? `, не вдалося: ${failed}` : '');
+        };
+
+        try {
+            // url is read here, just before the fetch, since the site may have re-rendered the card
+            for (const { card, url } of products) {
+                if (filterCancelled) {
+                    statusEl.textContent = `⛔ Зупинено. ${summary()}`;
+                    return;
+                }
+
+                statusEl.textContent = `⏳ Перевірка ${checked.length + failed + 1}/${products.length}... Знайдено: ${countCards(checked).match}`;
+                // Skip cards without a product link, and cards the site has removed from the page
+                if (!url || !card.isConnected) continue;
+
+                // Highlight the product being checked
+                card.classList.add('silpo-checking');
+                const result = await fetchNutritionInfo(url, loader);
+                card.classList.remove('silpo-checking');
+
+                if (result.status === 'cancelled') continue; // reported at the top of the loop
+                if (result.status === 'blocked') {
+                    statusEl.textContent = `🛑 Сайт тимчасово обмежив запити, перевірку зупинено. Спробуйте пізніше. ${summary()}`;
+                    return;
+                }
+                // A product that failed to load is left unmarked: no data is not the same as unknown
+                if (result.status === 'failed') {
+                    failed++;
+                    failedInARow++;
+                    if (failedInARow >= CONFIG.maxFailedInARow) {
+                        statusEl.textContent = `📡 Не вдається завантажити товари, перевірку зупинено. Перевірте з'єднання. ${summary()}`;
+                        return;
+                    }
+                    continue;
+                }
+                failedInARow = 0;
+
+                scannedCards.set(card, result.nutrition);
+                checked.push(card);
+                markCard(card, result.nutrition, evaluate(result.nutrition, currentCriteria()));
+            }
+        } finally {
+            activeLoader = null;
+        }
+
+        if (filterCancelled) {
+            statusEl.textContent = `⛔ Зупинено. ${summary()}`;
+            return;
+        }
+
+        const { match, miss, noData, hidden } = countCards(checked);
+        const failedNote = failed > 0 ? `, не вдалося: ${failed}` : '';
+        if (readCheckboxFlags().hideNonMatching) {
+            statusEl.textContent = `✅ Готово! Показано: ${checked.length - hidden}, приховано: ${hidden}` + failedNote;
+        } else {
+            statusEl.textContent = `✅ Готово! Підходить: ${match}, не підходить: ${miss}` +
+                (noData > 0 ? `, без даних: ${noData}` : '') + failedNote;
+        }
+    }
+
+    // === DYNAMIC VISIBILITY ===
+    // Re-draws every scanned card by the applied Criteria and the current checkbox flags
+    function refreshScannedCards() {
+        const criteria = currentCriteria();
+        for (const [card, nutrition] of scannedCards) {
+            if (!card.isConnected) {
+                scannedCards.delete(card);
+                continue;
+            }
+            markCard(card, nutrition, evaluate(nutrition, criteria));
+        }
+    }
+
+    function applyVisibility() {
+        if (appliedCriteria) refreshScannedCards();
+        saveCheckboxFlags();
     }
 
     // === UI PANEL ===
@@ -521,15 +342,16 @@
             console.error('Failed to load saved filter values:', e);
         }
 
-        // Use saved values or defaults from CONFIG
+        // Use saved values or defaults from CONFIG; a saved null is a field left empty
+        const savedNumber = (key, fallback) => savedValues && key in savedValues ? savedValues[key] ?? '' : fallback;
         const proteinOp = savedValues?.proteinOp || CONFIG.proteinOperator;
-        const proteinVal = savedValues?.proteinVal ?? CONFIG.minProtein;
+        const proteinVal = savedNumber('proteinVal', CONFIG.minProtein);
         const fatOp = savedValues?.fatOp || CONFIG.fatOperator;
-        const fatVal = savedValues?.fatVal ?? CONFIG.maxFat;
+        const fatVal = savedNumber('fatVal', CONFIG.maxFat);
         const carbsOp = savedValues?.carbsOp || CONFIG.carbsOperator;
-        const carbsVal = savedValues?.carbsVal ?? CONFIG.maxCarbs;
+        const carbsVal = savedNumber('carbsVal', CONFIG.maxCarbs);
         const caloriesOp = savedValues?.caloriesOp || CONFIG.caloriesOperator;
-        const caloriesVal = savedValues?.caloriesVal ?? CONFIG.maxCalories;
+        const caloriesVal = savedNumber('caloriesVal', CONFIG.maxCalories);
 
         // Theme: load saved state
         const savedTheme = localStorage.getItem(CONFIG.themeKey); // 'light' or null (dark)
@@ -687,18 +509,21 @@
             localStorage.setItem(CONFIG.themeKey, nowLight ? 'light' : 'dark');
         });
 
+        // An empty or invalid field is null: no limit
+        function readNumber(id) {
+            const value = parseFloat(document.getElementById(id).value);
+            return Number.isFinite(value) ? value : null;
+        }
+
         filterBtn.addEventListener('click', async () => {
             const proteinOp = document.getElementById('silpo-protein-op').value;
-            const proteinVal = parseFloat(document.getElementById('silpo-protein-val').value);
+            const proteinVal = readNumber('silpo-protein-val');
             const fatOp = document.getElementById('silpo-fat-op').value;
-            const fatVal = parseFloat(document.getElementById('silpo-fat-val').value);
+            const fatVal = readNumber('silpo-fat-val');
             const carbsOp = document.getElementById('silpo-carbs-op').value;
-            const carbsVal = parseFloat(document.getElementById('silpo-carbs-val').value);
+            const carbsVal = readNumber('silpo-carbs-val');
             const caloriesOp = document.getElementById('silpo-calories-op').value;
-            const caloriesVal = parseFloat(document.getElementById('silpo-calories-val').value);
-            const hideWithoutNutrition = hideCheckbox.checked;
-            const hideNonMatching = hideNonMatchingCheckbox.checked;
-            const onlyProteinMoreThanFat = onlyProteinMoreThanFatCheckbox.checked;
+            const caloriesVal = readNumber('silpo-calories-val');
 
             // Save all filter values
             const filterValues = {
@@ -711,46 +536,35 @@
                 caloriesOp,
                 caloriesVal
             };
+            appliedCriteria = filterValues;
+            // Cards from an earlier Scan follow the new Criteria straight away, not only once reached
+            refreshScannedCards();
             try {
                 localStorage.setItem(CONFIG.filterValuesKey, JSON.stringify(filterValues));
-                localStorage.setItem(CONFIG.hideWithoutNutritionKey, hideWithoutNutrition);
-                localStorage.setItem(CONFIG.hideNonMatchingKey, hideNonMatching);
-                localStorage.setItem(CONFIG.onlyProteinMoreThanFatKey, onlyProteinMoreThanFat);
             } catch (e) {
                 console.error('Failed to save filter values:', e);
             }
+            saveCheckboxFlags();
 
             filterBtn.disabled = true;
-            resetBtn.disabled = true;
+            resetBtn.style.display = 'none';
             stopBtn.style.display = '';
 
-            await filterProducts(proteinOp, proteinVal, fatOp, fatVal, carbsOp, carbsVal, caloriesOp, caloriesVal, hideWithoutNutrition, hideNonMatching, onlyProteinMoreThanFat, statusEl);
+            await filterProducts(statusEl);
 
             filterBtn.disabled = false;
-            resetBtn.disabled = false;
+            resetBtn.style.display = '';
             stopBtn.style.display = 'none';
         });
 
         stopBtn.addEventListener('click', () => {
             filterCancelled = true;
+            activeLoader?.cancel();
         });
 
         resetBtn.addEventListener('click', () => {
-            document.querySelectorAll('.silpo-hidden').forEach(el => {
-                el.classList.remove('silpo-hidden');
-            });
-            document.querySelectorAll('.silpo-nutrition-info').forEach(el => {
-                el.remove();
-            });
-            document.querySelectorAll('.silpo-card-green, .silpo-card-red, .silpo-card-yellow').forEach(el => {
-                el.classList.remove('silpo-card-green', 'silpo-card-red', 'silpo-card-yellow');
-            });
-            document.querySelectorAll('[data-protein]').forEach(el => {
-                delete el.dataset.protein;
-                delete el.dataset.fat;
-                delete el.dataset.carbs;
-                delete el.dataset.calories;
-            });
+            scannedCards.forEach((nutrition, card) => unmarkCard(card));
+            scannedCards.clear();
             statusEl.textContent = '♻️ Результати очищено';
         });
 

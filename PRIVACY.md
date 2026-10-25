@@ -13,7 +13,7 @@
 Усі ці дані зберігаються виключно у `localStorage` вашого браузера та **ніколи не покидають ваш пристрій**.
 
 ### Зовнішні запити:
-Розширення виконує запити лише до `silpo.ua` для отримання інформації про харчову цінність товарів. Жодні дані не надсилаються на сторонні сервери.
+Розширення виконує запити лише до `silpo.ua` та `foodboom.ua` для отримання інформації про харчову цінність товарів. Жодні дані не надсилаються на сторонні сервери.
 
 ---
 
@@ -30,7 +30,7 @@ The "БЖВК Filter" extension **does not collect, store, or transmit any perso
 All this data is stored exclusively in your browser's `localStorage` and **never leaves your device**.
 
 ### External requests:
-The extension only makes requests to `silpo.ua` to fetch product nutrition information. No data is sent to third-party servers.
+The extension only makes requests to `silpo.ua` and `foodboom.ua` to fetch product nutrition information. No data is sent to third-party servers.
 
 ---
 
