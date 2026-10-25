@@ -57,7 +57,8 @@
         // is not topped up from it, since the body text can include other products
         if (protein === null && fat === null && carbs === null) {
             const described = parseDescription(doc);
-            if (described) return described;
+            // The table's calories still count when the description gives none
+            if (described) return { ...described, calories: described.calories ?? calories };
         }
         return Object.values(nutrition).some(value => value !== null) ? nutrition : null;
     }

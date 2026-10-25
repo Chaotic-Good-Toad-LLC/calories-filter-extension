@@ -18,12 +18,21 @@
         }
     }
 
+    // Cloudflare's challenge page ("Just a moment..."). The frame leaves it at once, answering 403
+    // so the Scan stops: its script must not get the chance to pass the check
+    function isBotCheck(doc) {
+        return /^(Just a moment|Attention Required)/i.test(doc.title) ||
+            !!doc.querySelector('#challenge-form, #challenge-running, #cf-challenge-running, .cf-browser-verification');
+    }
+
     // A fetch() for stores whose page script adds the nutrition after the page opens: loads the
     // product page in a hidden frame, as a visit would, and answers with the page as it is once
-    // isReady(doc) is true. A page still not ready `settle` ms after it loaded fails like a network
-    // error, so it is retried and never cached as "no data". The page loader uses it in place of
-    // fetch(), so its pauses, retries, timeout and cancel apply.
-    // The frame is sandboxed so the page can't navigate this tab or open windows.
+    // isReady(doc) is true. A page that loads with an error status is answered at once with it,
+    // a page the browser won't show in a frame with status 0, and a bot check as 403. A page still not ready `settle` ms after it loaded fails like a
+    // network error, so it is retried and never cached as "no data". The page loader uses it in
+    // place of fetch(), so its pauses, retries, timeout and cancel apply.
+    // The sandbox stops the store's page navigating this tab or opening windows; it is not a
+    // security boundary (allow-scripts + allow-same-origin on a same-origin page), only a guard.
     function createFrameFetch({ document, isReady, options = {} }) {
         const o = { ...DEFAULTS, ...options };
 
@@ -47,9 +56,8 @@
                     frame.remove();
                 }
 
-                function respond() {
+                function respond(status = navigationStatus(frame)) {
                     const html = frame.contentDocument?.documentElement?.outerHTML || '';
-                    const status = navigationStatus(frame);
                     finish();
                     resolve({
                         status,
@@ -61,7 +69,10 @@
 
                 function check() {
                     const doc = frame.contentDocument;
-                    if (doc && isReady(doc)) respond();
+                    if (!doc) return;
+                    if (isBotCheck(doc)) respond(403);
+                    // Not while the HTML is still arriving: the table could be cut off mid-way
+                    else if (doc.readyState !== 'loading' && isReady(doc)) respond();
                 }
 
                 function onAbort() {
@@ -78,8 +89,15 @@
                 signal?.addEventListener('abort', onAbort);
 
                 frame.addEventListener('load', () => {
+                    // The browser wouldn't show the page in a frame (its own error page, or a page
+                    // that forbids framing, as foodboom's 404 does): there is nothing to wait for.
+                    // Status 0 fails the product without retries.
+                    if (!frame.contentDocument) return respond(0);
                     check();
                     if (done) return;
+                    // 404, 5xx and the like: the page loader decides, no point waiting for the script
+                    const status = navigationStatus(frame);
+                    if (status < 200 || status >= 300) return respond(status);
                     clearTimeout(settleTimer);
                     settleTimer = setTimeout(giveUp, o.settle);
                 });

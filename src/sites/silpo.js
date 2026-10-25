@@ -88,6 +88,8 @@
         const b = match[2] ? toNumber(match[2]) : null;
         // Only one number before the slash — treat as kcal
         if (b === null) return a;
+        // 0 kcal (water: "0/0", or "0/1" after rounding) is real, not unknown
+        if (a === 0) return 0;
         // Normal order: kcal/kJ (62/260)
         if (b > a && b < a * 10) return a;
         // Reversed order: kJ/kcal (427/101) — swap

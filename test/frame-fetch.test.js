@@ -119,3 +119,47 @@ test('the page loader times out a frame that never answers and tries again', asy
     assert.equal(page.status, 'ok');
     assert.match(page.html, /Білки/);
 });
+
+test('a bot check page is answered at once as 403, before its script can pass the check', async () => {
+    const document = fakeDocument();
+    const loading = createFrameFetch({ document, isReady, options: { ...options, settle: 10000 } })('u');
+    document.frames[0].show('<html><head><title>Just a moment...</title></head><body><div id="challenge-running"></div></body></html>');
+    const response = await loading;
+    assert.equal(response.status, 403);
+    assert.equal(document.frames[0].removed, true);
+});
+
+test('a page that loads with an error status is answered at once with it', async () => {
+    const document = fakeDocument();
+    const loading = createFrameFetch({ document, isReady, options: { ...options, settle: 10000 } })('u');
+    const [frame] = document.frames;
+    frame.show(BARE, 404);
+    frame.load();
+    const response = await loading;
+    assert.equal(response.status, 404);
+    assert.equal(response.ok, false);
+});
+
+test('the page loader stops on a bot check in a frame, and fails a 404 without retrying', async () => {
+    const document = fakeDocument();
+    const loader = createPageLoader({ fetch: createFrameFetch({ document, isReady, options }), sleep: async () => {} });
+
+    const blocked = loader.load('a');
+    document.frames[0].show('<html><head><title>Just a moment...</title></head><body></body></html>');
+    assert.deepEqual(await blocked, { status: 'blocked' });
+
+    const missing = loader.load('b');
+    document.frames[1].show(BARE, 404);
+    document.frames[1].load();
+    assert.deepEqual(await missing, { status: 'failed' });
+    assert.equal(document.frames.length, 2);
+});
+
+test('a page the browser refuses to show in a frame fails at once, without retries', async () => {
+    const document = fakeDocument();
+    const loader = createPageLoader({ fetch: createFrameFetch({ document, isReady, options: { ...options, settle: 10000 } }), sleep: async () => {} });
+    const loading = loader.load('u');
+    document.frames[0].load(); // no document: an error page from another origin
+    assert.deepEqual(await loading, { status: 'failed' });
+    assert.equal(document.frames.length, 1);
+});

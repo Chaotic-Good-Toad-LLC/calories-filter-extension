@@ -145,3 +145,15 @@ test('foodboom parseNutrition gives a partial table as it is, without filling it
     assert.deepEqual(foodboom.parseNutrition(doc), { protein: 2, fat: 11.2, carbs: null, calories: null });
 });
 
+test('silpo parseNutrition keeps 0 kcal written as "0/0"', () => {
+    const html = loadFixture('silpo/product-butter.html.gz').replaceAll('744/3125', '0/0');
+    assert.equal(silpo.parseNutrition(new JSDOM(html).window.document).calories, 0);
+});
+
+test('foodboom parseNutrition keeps the table calories when the macros come from the description', () => {
+    const doc = new JSDOM(`<div class="product-characteristics__item">
+        <div class="row"><span class="description">Енергетична цінність, ккал</span><span class="value">382</span></div>
+    </div>
+    <div class="product_description_text">білки – 2 г, жири – 11 г, вуглеводи – 67 г</div>`).window.document;
+    assert.deepEqual(foodboom.parseNutrition(doc), { protein: 2, fat: 11, carbs: 67, calories: 382 });
+});

@@ -7,6 +7,7 @@ const PRODUCTS = {
     lean: { protein: 20, fat: 5, carbs: 5, calories: 150 },    // match, protein > fat
     fatty: { protein: 2, fat: 15, carbs: 3, calories: 159 },   // miss
     even: { protein: 10, fat: 10, carbs: 1, calories: 150 },   // match, protein = fat
+    noKcal: { protein: 20, fat: 5, carbs: 5, calories: null }, // miss: unknown calories fail "<= 200"
     unknown: null,                                             // no Nutrition on the page
     unknown2: null,
     unknown3: null,
@@ -15,8 +16,9 @@ const PRODUCTS = {
 function silpoProductPage(nutrition) {
     if (!nutrition) return '<html><body><h1>Капсули для прання</h1></body></html>';
     const { protein, fat, carbs, calories } = nutrition;
+    const caloriesRow = calories === null ? '' : `<div>Енергетична цінність (кКал/кДЖ)${calories}/${Math.round(calories * 4.184)}</div>`;
     return `<html><body><div><h3>Харчова цінність на 100 г</h3>
-        <div>Енергетична цінність (кКал/кДЖ)${calories}/${Math.round(calories * 4.184)}</div>
+        ${caloriesRow}
         <div>Білки (г)${protein}</div><div>Жири (г)${fat}</div><div>Вуглеводи (г)${carbs}</div>
     </div></body></html>`;
 }
@@ -234,12 +236,14 @@ test('requests are spaced out, even for products without data', async () => {
     page.window.close();
 });
 
-test('old caches are dropped: v7 (0 calories meant unknown) and v8 (partial tables saved as no data)', async () => {
+test('caches from every earlier version are dropped; other settings are kept', async () => {
+    const old = ['calories_extention_nutrition_cache', 'calories_extention_nutrition_cache_v1',
+        'calories_extention_nutrition_cache_v7', 'calories_extention_nutrition_cache_v8'];
     const page = await openListing(['lean'], {
-        storage: { calories_extention_nutrition_cache_v7: '{}', calories_extention_nutrition_cache_v8: '{}' },
+        storage: { ...Object.fromEntries(old.map(key => [key, '{}'])), calories_extention_theme: 'light' },
     });
-    assert.equal(page.window.localStorage.getItem('calories_extention_nutrition_cache_v7'), null);
-    assert.equal(page.window.localStorage.getItem('calories_extention_nutrition_cache_v8'), null);
+    for (const key of old) assert.equal(page.window.localStorage.getItem(key), null, key);
+    assert.equal(page.window.localStorage.getItem('calories_extention_theme'), 'light');
     page.window.close();
 });
 
@@ -338,5 +342,52 @@ test('"Очистити результати" is hidden while a Scan runs and co
     release();
     await waitFor(() => page.status().startsWith('✅'));
     assert.equal(resetBtn.style.display, '');
+    page.window.close();
+});
+
+test('unknown calories show as "— ккал" and fail a calories limit', async () => {
+    const page = await openListing(['noKcal']);
+    await page.scan();
+    assert.equal(page.card('noKcal').colour, 'red');
+    const badge = page.window.document.querySelector('[data-name="noKcal"] .silpo-nutrition-info');
+    assert.match(badge.textContent, /— ккал/);
+    page.window.close();
+});
+
+test('a card from an earlier Scan that fails to load this time is unmarked', async () => {
+    let fail = false;
+    const page = await openListing(['lean'], { onFetch: () => fail ? new Response('', { status: 404 }) : undefined });
+    await page.scan();
+    assert.equal(page.card('lean').colour, 'green');
+
+    page.window.confirm = () => true;
+    page.window.document.getElementById('silpo-clear-cache-btn').click();
+    fail = true;
+    await page.scan();
+    assert.deepEqual(page.card('lean'), { hidden: false, colour: null, badgeColour: null });
+    page.window.close();
+});
+
+test('if the Scan throws, the panel buttons come back', async () => {
+    const page = await openListing(['lean']);
+    page.window.BZVK.sites.silpo.parseNutrition = () => { throw new Error('the store changed its page'); };
+    const $ = (id) => page.window.document.getElementById(id);
+    page.window.console.error = () => {};
+    $('silpo-filter-btn').click();
+    await waitFor(() => !$('silpo-filter-btn').disabled);
+    assert.match(page.status(), /^⚠️ Перевірку перервано/);
+    assert.equal($('silpo-stop-btn').style.display, 'none');
+    assert.equal($('silpo-reset-btn').style.display, '');
+    assert.equal(page.window.document.querySelector('.silpo-checking'), null);
+    page.window.close();
+});
+
+test('"Очистити результати" also clears marks on cards the Scan no longer tracks', async () => {
+    const page = await openListing(['lean']);
+    const card = page.window.document.querySelector('[data-name="lean"]');
+    card.classList.add('silpo-card-red', 'silpo-hidden');
+    card.appendChild(Object.assign(page.window.document.createElement('div'), { className: 'silpo-nutrition-info' }));
+    page.window.document.getElementById('silpo-reset-btn').click();
+    assert.deepEqual(page.card('lean'), { hidden: false, colour: null, badgeColour: null });
     page.window.close();
 });

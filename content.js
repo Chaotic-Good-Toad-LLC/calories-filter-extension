@@ -12,9 +12,9 @@
         carbsOperator: '<=',
         caloriesOperator: '<=',
         // v9: any value can be null (unknown), so partial tables are kept; pages without nutrition
-        // are stored as { noData: true }
+        // are stored as { noData: true }. Caches under other keys with this prefix are removed on load.
+        cacheKeyPrefix: 'calories_extention_nutrition_cache',
         cacheKey: 'calories_extention_nutrition_cache_v9',
-        oldCacheKeys: ['calories_extention_nutrition_cache_v7', 'calories_extention_nutrition_cache_v8'],
         cacheExpiry: 604800000, // 7 days
         noDataCacheExpiry: 86400000, // 1 day: the store may add the nutrition table later
         maxFailedInARow: 5, // stop the Scan after this many products in a row fail to load
@@ -47,7 +47,7 @@
 
         load() {
             try {
-                CONFIG.oldCacheKeys.forEach(key => localStorage.removeItem(key));
+                this.removeOldCaches();
                 const cached = localStorage.getItem(CONFIG.cacheKey);
                 if (!cached) return {};
                 const parsed = JSON.parse(cached);
@@ -65,6 +65,14 @@
             } catch (e) {
                 return {};
             }
+        }
+
+        // Caches from earlier versions, whose stored shape or meaning differs
+        removeOldCaches() {
+            const keys = [];
+            for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
+            keys.filter(key => key.startsWith(CONFIG.cacheKeyPrefix) && key !== CONFIG.cacheKey)
+                .forEach(key => localStorage.removeItem(key));
         }
 
         save() {
@@ -184,15 +192,13 @@
         infoDiv.appendChild(createNutritionLabel('Ж:', fat, 'г'));
         infoDiv.appendChild(createNutritionLabel('В:', carbs, 'г'));
 
-        if (calories !== null) {
-            const calDiv = document.createElement('div');
-            calDiv.className = 'silpo-nutrition-label';
-            const strong = document.createElement('strong');
-            strong.textContent = calories;
-            calDiv.appendChild(strong);
-            calDiv.appendChild(document.createTextNode(' ккал'));
-            infoDiv.appendChild(calDiv);
-        }
+        const calDiv = document.createElement('div');
+        calDiv.className = 'silpo-nutrition-label';
+        const strong = document.createElement('strong');
+        strong.textContent = calories ?? '—';
+        calDiv.appendChild(strong);
+        calDiv.appendChild(document.createTextNode(' ккал'));
+        infoDiv.appendChild(calDiv);
 
         // Add muscle emoji if protein > fat
         if (result.proteinMoreThanFat) {
@@ -212,6 +218,8 @@
         const criteria = currentCriteria();
         const counts = { match: 0, miss: 0, noData: 0, hidden: 0 };
         for (const card of cards) {
+            // A card the site removed mid-Scan is no longer on the page to count
+            if (!scannedCards.has(card)) continue;
             const result = evaluate(scannedCards.get(card), criteria);
             counts[result.verdict]++;
             if (result.hidden) counts.hidden++;
@@ -270,8 +278,11 @@
                     statusEl.textContent = `🛑 Сайт тимчасово обмежив запити, перевірку зупинено. Спробуйте пізніше. ${summary()}`;
                     return;
                 }
-                // A product that failed to load is left unmarked: no data is not the same as unknown
+                // A product that failed to load is left unmarked: failing to load is not "no data",
+                // and a badge from an earlier Scan would be stale
                 if (result.status === 'failed') {
+                    unmarkCard(card);
+                    scannedCards.delete(card);
                     failed++;
                     failedInARow++;
                     if (failedInARow >= CONFIG.maxFailedInARow) {
@@ -550,11 +561,18 @@
             resetBtn.style.display = 'none';
             stopBtn.style.display = '';
 
-            await filterProducts(statusEl);
-
-            filterBtn.disabled = false;
-            resetBtn.style.display = '';
-            stopBtn.style.display = 'none';
+            try {
+                await filterProducts(statusEl);
+            } catch (e) {
+                console.error('Scan failed:', e);
+                statusEl.textContent = '⚠️ Перевірку перервано через помилку. Оновіть сторінку і спробуйте ще раз.';
+            } finally {
+                // Even if a store page change makes the Scan throw, the panel must not stay stuck
+                document.querySelectorAll('.silpo-checking').forEach(card => card.classList.remove('silpo-checking'));
+                filterBtn.disabled = false;
+                resetBtn.style.display = '';
+                stopBtn.style.display = 'none';
+            }
         });
 
         stopBtn.addEventListener('click', () => {
@@ -565,6 +583,8 @@
         resetBtn.addEventListener('click', () => {
             scannedCards.forEach((nutrition, card) => unmarkCard(card));
             scannedCards.clear();
+            // Also cards dropped from the map, e.g. ones the site detached and attached again
+            document.querySelectorAll('.silpo-card-green, .silpo-card-red, .silpo-card-yellow, .silpo-hidden').forEach(unmarkCard);
             statusEl.textContent = '♻️ Результати очищено';
         });
 
