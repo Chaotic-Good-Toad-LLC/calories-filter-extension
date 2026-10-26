@@ -286,7 +286,7 @@ for (const site of SITES.filter(s => !ONLY || s.name === ONLY)) {
 
 const { ok, text } = markdown(reports, meta);
 fs.mkdirSync(OUT_DIR, { recursive: true });
-const file = path.join(OUT_DIR, `${now.toISOString().slice(0, 16).replace(/[T:]/g, '-')}.md`);
+const file = path.join(OUT_DIR, `${now.toISOString().slice(0, 16).replace(/[T:]/g, '-')}${ONLY ? '-' + ONLY : ''}.md`);
 fs.writeFileSync(file, text);
 console.log(text);
 console.log(`\nReport: ${file}`);
