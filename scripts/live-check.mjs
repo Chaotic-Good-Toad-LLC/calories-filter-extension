@@ -135,8 +135,10 @@ const COLLECT = `(() => {
         // The name from the product's own link, so it can't come from another element in the card
         const links = [...card.querySelectorAll('a[href]')].filter(a => a.href === url);
         const named = links.find(a => a.textContent.trim()) || links.find(a => a.querySelector('img[alt]'));
-        // The image's alt text first: silpo's link text also holds the prices
-        const title = (card.querySelector('img[alt]:not([alt=""])')?.alt || named?.textContent.trim() || '').replace(/\\s+/g, ' ');
+        // The longest image alt first: silpo's link text also holds the prices, and its cards carry
+        // promo-label images ("only_online") whose short alts aren't the name
+        const alt = [...card.querySelectorAll('img[alt]')].map(img => img.alt.trim()).sort((a, b) => b.length - a.length)[0];
+        const title = (alt && alt.length > 15 ? alt : named?.textContent.trim() || '').replace(/\\s+/g, ' ');
         return { url, title, verdict, badge: card.querySelector('.silpo-nutrition-info')?.textContent.trim() || null, nutrition, cached: !!entry };
     });
     return {
