@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Live check against the real stores, driven through Orca's browser (`orca` CLI):
-// for each store it opens the home page, injects the extension as checked out here, runs a fresh
+// for each store it opens a category page, injects the extension as checked out here, runs a fresh
 // Scan, then opens a sample of products as ordinary pages and compares the values shown there with
 // the ones the extension read. Writes a Markdown report and exits 1 if anything looks wrong.
 //
-//   node scripts/live-check.mjs [--out <dir>] [--sample <n>] [--site silpo|foodboom]
+//   node scripts/live-check.mjs [--out <dir>] [--sample <n>] [--site silpo|foodboom] [--url <page>]
+//
+// --url checks that page instead of the store's usual one (use it with --site).
 //
 // The page's own filter settings are put back afterwards; the nutrition cache is emptied first so
 // every product is really loaded. It never works around a bot check: a blocked Scan is reported.
@@ -16,9 +18,10 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// Food categories: a few dozen products, nearly all with nutrition tables
 const SITES = [
-    { name: 'silpo', url: 'https://silpo.ua/' },
-    { name: 'foodboom', url: 'https://foodboom.ua/' },
+    { name: 'silpo', url: 'https://silpo.ua/category/molochni-produkty-ta-iaitsia-234' },
+    { name: 'foodboom', url: 'https://foodboom.ua/napoi/' },
 ];
 
 const SCAN_TIMEOUT = 20 * 60 * 1000;
@@ -32,6 +35,7 @@ const option = (name, fallback) => {
 const OUT_DIR = path.resolve(option('--out', path.join(ROOT, 'live-check-results')));
 const SAMPLE = Number(option('--sample', 6));
 const ONLY = option('--site', null);
+const URL_OVERRIDE = option('--url', null);
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -203,7 +207,7 @@ async function checkSite(site, bundle) {
             if (urls.length <= Math.max(2, report.found * 0.05)) report.warnings.push(message);
             else report.problems.push(message);
         }
-        // Home pages mix in non-food, so plenty of "no data" is normal; nearly all of it means the parser broke
+        // Some products have no table (and other pages mix in non-food); nearly all of them means the parser broke
         if (report.counts.noData > report.found * 0.8) report.problems.push(`over 80% of the products have no data (${report.counts.noData}/${report.found})`);
         for (const p of result.products.filter(p => p.nutrition && p.badge && /NaN|undefined/.test(p.badge))) {
             report.problems.push(`broken badge "${p.badge}" on ${p.url}`);
@@ -278,7 +282,7 @@ const bundle = extensionBundle();
 const reports = [];
 for (const site of SITES.filter(s => !ONLY || s.name === ONLY)) {
     try {
-        reports.push(await checkSite(site, bundle));
+        reports.push(await checkSite(URL_OVERRIDE ? { ...site, url: URL_OVERRIDE } : site, bundle));
     } catch (e) {
         reports.push({ ...site, problems: [`the check crashed: ${e.message}`], sample: [] });
     }
