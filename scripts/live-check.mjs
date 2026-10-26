@@ -4,9 +4,11 @@
 // Scan, then opens a sample of products as ordinary pages and compares the values shown there with
 // the ones the extension read. Writes a Markdown report and exits 1 if anything looks wrong.
 //
-//   node scripts/live-check.mjs [--out <dir>] [--sample <n>] [--site silpo|foodboom] [--url <page>]
+//   node scripts/live-check.mjs [--out <dir>] [--sample <n>] [--site silpo|foodboom] [--url <page>] [--minutes <n>]
 //
-// --url checks that page instead of the store's usual one (use it with --site).
+// --url checks that page instead of the store's usual one (use it with --site). --minutes (default 8)
+// caps the whole run: past it, the check stops where it is and still writes its report.
+// Progress goes to stderr as it runs.
 //
 // The page's own filter settings are put back afterwards; the nutrition cache is emptied first so
 // every product is really loaded. It never works around a bot check: a blocked Scan is reported.
@@ -24,7 +26,7 @@ const SITES = [
     { name: 'foodboom', url: 'https://foodboom.ua/napoi/' },
 ];
 
-const SCAN_TIMEOUT = 20 * 60 * 1000;
+const COMMAND_TIMEOUT = 60 * 1000; // an orca command that hangs longer is killed
 const DONE_STATUS = /^(✅|⛔|❌|🛑|📡|⚠️)/;
 
 const args = process.argv.slice(2);
@@ -36,16 +38,20 @@ const OUT_DIR = path.resolve(option('--out', path.join(ROOT, 'live-check-results
 const SAMPLE = Number(option('--sample', 6));
 const ONLY = option('--site', null);
 const URL_OVERRIDE = option('--url', null);
+const DEADLINE = Date.now() + Number(option('--minutes', 8)) * 60 * 1000;
+const timeLeft = () => DEADLINE - Date.now();
+const progress = message => console.error(`[${new Date().toISOString().slice(11, 19)}] ${message}`);
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function orca(...cliArgs) {
     let out;
     try {
-        out = execFileSync('orca', [...cliArgs, '--json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+        out = execFileSync('orca', [...cliArgs, '--json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: COMMAND_TIMEOUT });
     } catch (e) {
         // A failed command still prints its JSON error; without one, keep the first line only
         out = e.stdout;
+        if (e.signal === 'SIGTERM') throw new Error(`orca ${cliArgs[0]} did not answer within ${COMMAND_TIMEOUT / 1000} s`);
         if (!out) throw new Error(`orca ${cliArgs[0]} failed: ${String(e.stderr || e.message).split('\n')[0]}`);
     }
     const reply = JSON.parse(out);
@@ -59,9 +65,19 @@ function evaluate(page, expression) {
     return JSON.parse(result.result);
 }
 
+// Waits in the page itself for it to finish loading: a bare `orca wait` can hold Orca's runtime
+// for a minute or more on store pages, which keep the network busy
 function openTab(url) {
     const page = orca('tab', 'create', '--url', url).browserPageId;
-    try { orca('wait', '--page', page, '--timeout', '30000'); } catch (e) { /* slow page: the checks below report it */ }
+    try {
+        evaluate(page, `new Promise(resolve => {
+            const start = Date.now();
+            (function poll() {
+                if (document.readyState === 'complete' || Date.now() - start > 20000) resolve(document.readyState);
+                else setTimeout(poll, 200);
+            })();
+        })`);
+    } catch (e) { /* slow page: the checks below report it */ }
     return page;
 }
 
@@ -119,7 +135,8 @@ const COLLECT = `(() => {
         // The name from the product's own link, so it can't come from another element in the card
         const links = [...card.querySelectorAll('a[href]')].filter(a => a.href === url);
         const named = links.find(a => a.textContent.trim()) || links.find(a => a.querySelector('img[alt]'));
-        const title = (named?.textContent.trim() || named?.querySelector('img[alt]')?.alt || '').replace(/\\s+/g, ' ');
+        // The image's alt text first: silpo's link text also holds the prices
+        const title = (card.querySelector('img[alt]:not([alt=""])')?.alt || named?.textContent.trim() || '').replace(/\\s+/g, ' ');
         return { url, title, verdict, badge: card.querySelector('.silpo-nutrition-info')?.textContent.trim() || null, nutrition, cached: !!entry };
     });
     return {
@@ -171,6 +188,7 @@ function pickSample(products) {
 
 async function checkSite(site, bundle) {
     const report = { ...site, problems: [], warnings: [], sample: [] };
+    progress(`${site.name}: opening ${site.url}`);
     const page = openTab(site.url);
     let saved = null;
     try {
@@ -183,22 +201,29 @@ async function checkSite(site, bundle) {
             return report;
         }
 
+        progress(`${site.name}: ${report.found} products, starting the Scan`);
         const started = Date.now();
         evaluate(page, `(document.getElementById('silpo-filter-btn').click(), true)`);
         let status = '';
-        while (Date.now() - started < SCAN_TIMEOUT) {
+        while (timeLeft() > 0) {
             await sleep(3000);
             status = evaluate(page, `document.getElementById('silpo-filter-status').textContent`);
             if (DONE_STATUS.test(status)) break;
+            if ((Date.now() - started) % 30000 < 3000) progress(`${site.name}: ${status}`);
         }
         report.seconds = Math.round((Date.now() - started) / 1000);
+        progress(`${site.name}: ${status} (${report.seconds} s)`);
+        if (!DONE_STATUS.test(status)) {
+            evaluate(page, `(document.getElementById('silpo-stop-btn').click(), true)`);
+            report.problems.push(`ran out of time during the Scan (still "${status}")`);
+        }
 
         const result = evaluate(page, COLLECT);
         Object.assign(report, result);
         const count = verdict => result.products.filter(p => p.verdict === verdict).length;
         report.counts = { match: count('green'), miss: count('red'), noData: count('yellow'), unmarked: count(null) };
 
-        if (!result.status.startsWith('✅')) report.problems.push(`the Scan did not finish: "${result.status}"`);
+        if (!result.status.startsWith('✅') && DONE_STATUS.test(status)) report.problems.push(`the Scan did not finish: "${result.status}"`);
         if (result.framesLeft) report.problems.push(`${result.framesLeft} hidden frame(s) left on the page`);
         if (report.counts.unmarked) {
             const urls = result.products.filter(p => !p.verdict).map(p => p.url);
@@ -217,7 +242,12 @@ async function checkSite(site, bundle) {
         closeTab(page);
     }
 
-    for (const product of pickSample(report.products)) {
+    for (const product of pickSample(report.products || [])) {
+        if (timeLeft() < 30000) {
+            report.problems.push('ran out of time while checking sampled products');
+            break;
+        }
+        progress(`${site.name}: comparing ${product.url}`);
         const productPage = openTab(product.url);
         try {
             let shown;
