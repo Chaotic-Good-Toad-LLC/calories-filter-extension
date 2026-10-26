@@ -1,6 +1,6 @@
 {
     "name": "БЖВК Filter",
-    "version": "0.14",
+    "version": "0.15",
     "description": "Фільтрує товари на silpo.ua та foodboom.ua за білками, жирами, вуглеводами та калоріями.",
     "manifest_version": 3,
     "icons": {
@@ -21,7 +21,7 @@
         {
             "matches": ["https://silpo.ua/*", "https://foodboom.ua/*"],
             "css": ["styles.css"],
-            "js": ["content.js"],
+            "js": ["src/match.js", "src/page-loader.js", "src/frame-fetch.js", "src/sites/adapter-kit.js", "src/sites/silpo.js", "src/sites/foodboom.js", "content.js"],
             "run_at": "document_idle"
         }
     ]

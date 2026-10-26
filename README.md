@@ -16,13 +16,22 @@ Browser extension that filters grocery products on [silpo.ua](https://silpo.ua) 
 - Dark and light theme support
 - Collapsible filter panel with persistent settings
 
-## Installation
+## Install from source
 
 1. Clone the repository
-2. Open `chrome://extensions` in Chrome
-3. Enable **Developer Mode**
-4. Click **Load unpacked** and select the project folder
+2. In Chrome, open `chrome://extensions`, enable **Developer Mode**, click **Load unpacked** and select the project folder
+3. In Firefox, open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and select `manifest.json`
 
 ## Usage
 
 Navigate to any product listing page on silpo.ua or foodboom.ua. The filter panel appears in the top-right corner. Set your desired nutritional thresholds and click **Застосувати фільтр**.
+
+## Development
+
+```sh
+npm install   # once; jsdom for the tests
+npm test      # runs the tests against saved store pages
+scripts/package.sh   # builds the Chrome and Firefox zips
+```
+
+CI runs the tests and checks the store zips on every pull request.

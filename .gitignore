@@ -14,3 +14,9 @@ Thumbs.db
 *.crx
 *.pem
 *.xpi
+
+# Dev tooling
+node_modules/
+
+# Live check reports (scripts/live-check.mjs)
+live-check-results/
